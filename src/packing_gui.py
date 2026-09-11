@@ -1,5 +1,5 @@
 """The window. One state at a time, two tabs, nothing else."""
-import pathlib, queue, sys, tkinter as tk
+import datetime as dt, os, pathlib, queue, sys, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import job as jobmod
@@ -31,6 +31,9 @@ class App:
         }
         self.frames = {name: ttk.Frame(self.panes["run"]) for name in STATES}
         self._build_idle(self.frames["idle"])
+        self._build_working(self.frames["working"])
+        self._build_done(self.frames["done"])
+        self._build_failed(self.frames["failed"])
 
         self.panes["run"].pack(fill="both", expand=True)
         self.show("idle")
@@ -77,8 +80,124 @@ class App:
         self.src = pathlib.Path(path)
         self.start()
 
+    # ------------------------------------------------------------- working
+    def _build_working(self, f):
+        self.file_text = tk.StringVar(value="")
+        self.progress_text = tk.StringVar(value="")
+        self.stage_text = tk.StringVar(value="")
+        ttk.Label(f, textvariable=self.file_text,
+                  font=("TkDefaultFont", 10, "bold")).pack(pady=(28, 12))
+        self.bar = ttk.Progressbar(f, mode="determinate", length=380)
+        self.bar.pack()
+        ttk.Label(f, textvariable=self.progress_text,
+                  foreground="#6a6d73").pack(pady=(10, 2))
+        ttk.Label(f, textvariable=self.stage_text, foreground="#6a6d73").pack()
+
+    def _build_done(self, f):
+        self.stats_text = tk.StringVar(value="")
+        ttk.Label(f, text="✓  Ready to print", foreground="#1f7a3f",
+                  font=("TkDefaultFont", 13, "bold")).pack(pady=(26, 10))
+        ttk.Label(f, textvariable=self.stats_text, foreground="#6a6d73",
+                  justify="center").pack()
+        row = ttk.Frame(f); row.pack(pady=16)
+        ttk.Button(row, text="Print", command=self.do_print).pack(side="left", padx=5)
+        ttk.Button(row, text="Do another", command=self.reset).pack(side="left", padx=5)
+        ttk.Button(f, text="See the full report",
+                   command=lambda: self.tab("logs")).pack()
+
+    def _build_failed(self, f):
+        self.fail_text = tk.StringVar(value="")
+        ttk.Label(f, text="✗  DO NOT PRINT", foreground="#b3261e",
+                  font=("TkDefaultFont", 13, "bold")).pack(pady=(26, 10))
+        ttk.Label(f, text="This export failed its checks. Nothing was saved.",
+                  justify="center").pack()
+        ttk.Label(f, textvariable=self.fail_text, foreground="#6a6d73").pack(pady=(6, 0))
+        row = ttk.Frame(f); row.pack(pady=16)
+        ttk.Button(row, text="See what failed",
+                   command=lambda: self.tab("logs")).pack(side="left", padx=5)
+        ttk.Button(row, text="Do another", command=self.reset).pack(side="left", padx=5)
+
+    # ----------------------------------------------------------------- run
+    def default_name(self):
+        return dt.date.today().strftime("%Y-%m-%d-slips.pdf")
+
+    def ask_destination(self):
+        """Ask until we get somewhere writable, or the user gives up. Checking
+        now costs a second; checking after the build costs ninety."""
+        while True:
+            dest = filedialog.asksaveasfilename(
+                title="Save print-ready PDF as…",
+                initialfile=self.default_name(),
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf")])
+            if not dest:
+                return None               # cancelled — costs nothing
+            d = pathlib.Path(dest)
+            if d.parent.is_dir() and os.access(d.parent, os.W_OK):
+                return d
+            messagebox.showerror(
+                "Can't save there",
+                f"{d.parent} can't be written to. Choose another folder.")
+
     def start(self):
-        pass          # Task 8
+        dest = self.ask_destination()
+        if dest is None:
+            self.show("idle")
+            return
+        self.file_text.set(self.src.name)
+        self.progress_text.set("")
+        self.stage_text.set("starting…")
+        self.bar.configure(value=0, maximum=100)
+        self.log_lines = []
+        self.show("working")
+        job = jobmod.Job(self.src, dest)
+        threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
+        self.root.after(100, self.pump)
+
+    def pump(self):
+        while True:
+            try:
+                ev = self.queue.get_nowait()
+            except queue.Empty:
+                break
+            kind = ev["kind"]
+            if kind == "progress":
+                done, total, stage = ev["done"], ev["total"], ev["stage"]
+                self.bar.configure(maximum=total, value=done)
+                verb = "rendering" if stage == "building slips" else "checking"
+                self.progress_text.set(f"{verb} {done}/{total}")
+                self.stage_text.set(f"{stage}…")
+            elif kind == "log":
+                self.log_lines.append(ev["line"])
+                self.append_log(ev["line"])
+            elif kind == "done":
+                self.finish(ev["result"])
+                return
+        if self.state == "working":
+            self.root.after(100, self.pump)
+
+    def finish(self, result):
+        self.result = result
+        self.tab("run")
+        if result.ok:
+            self.stats_text.set(f"{result.pages} pages\n{result.checks:,} checks passed")
+            self.show("done")
+        else:
+            self.fail_text.set(result.message)
+            self.mark_failure()
+            self.show("failed")
+        self.refresh_logs()
+
+    def do_print(self):
+        if self.result and self.result.dest:
+            platform_bits.open_for_print(self.result.dest)
+
+    def reset(self):
+        self.src = self.result = None
+        self.show("idle")
+
+    def append_log(self, line):
+        pass          # Task 9
 
 def main():
     root = tk.Tk()
