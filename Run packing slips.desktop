@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Run packing slips
-Comment=Rebuild Whatnot exports from inbox into outbox
-Icon=document-print
-Path=/home/mhamida/Desktop/Projects/Packing Logistics
-Exec=konsole --hold --workdir "/home/mhamida/Desktop/Projects/Packing Logistics" -e ./run.sh
-Terminal=false
-Categories=Utility;
