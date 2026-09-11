@@ -84,11 +84,11 @@ None. Processed exports and logs are pruned automatically after 30 days.
 
 ## Under the hood
 
-`./run.sh` calls `.packing/whatnot_slips.py`, which can also be used directly:
+`./run.sh` calls `src/whatnot_slips.py`, which can also be used directly:
 
 ```bash
-python3 .packing/whatnot_slips.py build IN.pdf -o OUT.pdf --deep
-python3 .packing/whatnot_slips.py verify IN.pdf OUT.pdf --deep
+python3 src/whatnot_slips.py build IN.pdf -o OUT.pdf --deep
+python3 src/whatnot_slips.py verify IN.pdf OUT.pdf --deep
 ```
 
 Requires `poppler-utils`, `ghostscript`, and Python 3 with Pillow — all already

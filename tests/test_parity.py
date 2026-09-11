@@ -1,4 +1,4 @@
-import hashlib, json, pathlib, subprocess, tempfile
+import hashlib, json, pathlib, tempfile
 import pytest
 import whatnot_slips as ws
 
