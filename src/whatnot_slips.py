@@ -15,6 +15,25 @@ from collections import OrderedDict
 
 from PIL import Image
 
+# ------------------------------------------------------- external binaries
+# Frozen bundles carry gs and poppler under bin/; unfrozen we use PATH as before.
+_WIN_NAMES = {'gs': 'gswin64c.exe'}
+
+def _bin(name):
+    base = getattr(sys, '_MEIPASS', None)
+    if not base:
+        return name
+    exe = _WIN_NAMES.get(name, name + '.exe') if os.name == 'nt' else name
+    return os.path.join(base, 'bin', exe)
+
+def _spawn(argv, **kw):
+    """subprocess.run with check=True, and no console flash on Windows.
+    A windowed .exe pops a console for every child process without this."""
+    kw.setdefault('check', True)
+    if os.name == 'nt':
+        kw.setdefault('creationflags', 0x08000000)   # CREATE_NO_WINDOW
+    return subprocess.run(argv, **kw)
+
 W, H, M = 288.0, 432.0, 16.0          # 4x6 in page, 16 pt margin
 X_QTY, X_NAME, X_SUB = M, M + 24, W - M
 NAME_W, VAR_X = 172.0, M + 24
@@ -90,7 +109,7 @@ def pdf_pages(pdf):
     with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
         tmp = f.name
     try:
-        subprocess.run(['pdftotext', '-layout', '-enc', 'UTF-8', pdf, tmp], check=True)
+        _spawn([_bin('pdftotext'), '-layout', '-enc', 'UTF-8', pdf, tmp])
         pages = open(tmp, encoding='utf-8').read().split('\f')
     finally:
         os.unlink(tmp)
@@ -271,8 +290,8 @@ def slip_ps(ship, grouped, to, frm):
 def label_bitmap(pdf, pageno, tmpdir):
     """Extract the label image on `pageno` as a 1-bit PIL image (or None)."""
     for f in glob.glob(os.path.join(tmpdir, 'L*')): os.remove(f)
-    subprocess.run(['pdfimages', '-p', '-f', str(pageno), '-l', str(pageno),
-                    pdf, os.path.join(tmpdir, 'L')], check=True)
+    _spawn([_bin('pdfimages'), '-p', '-f', str(pageno), '-l', str(pageno),
+            pdf, os.path.join(tmpdir, 'L')])
     cand = [f for f in os.listdir(tmpdir) if f.startswith('L')]
     if not cand: return None
     big = max(cand, key=lambda f: os.path.getsize(os.path.join(tmpdir, f)))
@@ -311,12 +330,12 @@ def build(src, out, quiet=False):
     with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
         f.write("".join(ps)); psfile = f.name
     try:
-        subprocess.run(['gs','-q','-dBATCH','-dNOPAUSE','-sDEVICE=pdfwrite',
+        _spawn([_bin('gs'),'-q','-dBATCH','-dNOPAUSE','-sDEVICE=pdfwrite',
             '-dCompatibilityLevel=1.4','-dEmbedAllFonts=true','-dSubsetFonts=true',
             '-dAutoFilterMonoImages=false','-dMonoImageFilter=/FlateEncode',
             '-dDownsampleMonoImages=false','-dFIXEDMEDIA',
             f'-dDEVICEWIDTHPOINTS={W}', f'-dDEVICEHEIGHTPOINTS={H}',
-            f'-sOutputFile={out}', psfile], check=True)
+            f'-sOutputFile={out}', psfile])
     finally:
         os.unlink(psfile)
     return len(data), nsl, nlb
