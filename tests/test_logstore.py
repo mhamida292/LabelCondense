@@ -43,3 +43,14 @@ def test_source_name_with_spaces_and_unicode(tmp_path, monkeypatch):
     monkeypatch.setenv("PACKING_LOG_DIR", str(tmp_path / "logs"))
     logstore.write_report("x", "my export (2).pdf", True, dt.datetime(2026, 9, 11, 10, 0))
     assert logstore.list_reports()[0].source == "my export (2).pdf"
+
+def test_list_reports_tolerates_unreadable_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("PACKING_LOG_DIR", str(tmp_path / "logs"))
+    # Write a good report
+    logstore.write_report("good", "ok.pdf", True, dt.datetime(2026, 9, 11, 10, 0))
+    # Write non-UTF-8 bytes to a .log file
+    (tmp_path / "logs" / "junk.log").write_bytes(b"\xff\xfe\x00binary")
+    # list_reports() should return just the good one, not raise
+    reports = logstore.list_reports()
+    assert len(reports) == 1
+    assert reports[0].source == "ok.pdf"

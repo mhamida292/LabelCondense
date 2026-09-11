@@ -1,7 +1,7 @@
 """Where run reports are kept. Reports contain buyer usernames on failure
 lines, so they live in the user's own data directory — never in the bundle,
 which is a temp dir that vanishes, and never anywhere shared."""
-import datetime as dt, json, os, pathlib, re
+import datetime as dt, json, os, pathlib
 from dataclasses import dataclass
 
 APP = "PackingSlips"
@@ -39,14 +39,14 @@ def write_report(text, source_name, ok, when=None):
     return path
 
 def _read_meta(path):
-    with open(path, encoding="utf-8") as f:
-        first = f.readline()
-    if not first.startswith("#meta "):
-        return None
     try:
+        with open(path, encoding="utf-8") as f:
+            first = f.readline()
+        if not first.startswith("#meta "):
+            return None
         m = json.loads(first[6:])
         return Report(path, dt.datetime.fromisoformat(m["when"]), m["source"], bool(m["ok"]))
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, OSError):
         return None
 
 def list_reports():
