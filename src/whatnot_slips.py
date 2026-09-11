@@ -313,7 +313,7 @@ def label_ps(im):
             + "\ngrestore\nshowpage\n")
 
 # ---------------------------------------------------------------------- build
-def build(src, out, quiet=False):
+def build(src, out, quiet=False, progress=None):
     raw, data = load(src)
     ps = [f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"]
     nsl = nlb = 0
@@ -324,9 +324,12 @@ def build(src, out, quiet=False):
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
-            if not quiet and sys.stderr.isatty():
+            if progress:
+                progress(i + 1, len(data), "building slips")
+            elif not quiet and sys.stderr.isatty():
                 print(f"\r  rendering {i+1}/{len(data)}", end='', file=sys.stderr, flush=True)
-    if not quiet and sys.stderr.isatty(): print(file=sys.stderr)
+    if not progress and not quiet and sys.stderr.isatty():
+        print(file=sys.stderr)
     with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
         f.write("".join(ps)); psfile = f.name
     try:
@@ -348,14 +351,18 @@ class Audit:
         self.checks += 1
         if not cond: self.fail.append((label, detail))
         return cond
-    def report(self, title):
-        print(f"\n{title}")
-        print(f"  assertions run : {self.checks}")
-        print(f"  failures       : {len(self.fail)}")
+    def text(self, title):
+        lines = [f"\n{title}",
+                 f"  assertions run : {self.checks}",
+                 f"  failures       : {len(self.fail)}"]
         for l, d in self.fail[:40]:
-            print(f"    FAIL {l}: {d}")
+            lines.append(f"    FAIL {l}: {d}")
         if len(self.fail) > 40:
-            print(f"    ... and {len(self.fail)-40} more")
+            lines.append(f"    ... and {len(self.fail)-40} more")
+        return "\n".join(lines)
+
+    def report(self, title):
+        print(self.text(title))
         return not self.fail
 
 def kinds_detail(kinds):
@@ -368,7 +375,7 @@ def kinds_detail(kinds):
     return (f'page {i+1} unexpected {kinds[i]!r}: '
             f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
 
-def verify(src, out, deep=False):
+def verify(src, out, deep=False, progress=None):
     a = Audit()
     raw_s, src_ships = load(src)
     raw_o, out_ships = load(out)
@@ -486,10 +493,12 @@ def verify(src, out, deep=False):
                      hashlib.sha256(oi.tobytes()).digest(),
                      f'shipment {k} label pixels identical',
                      f'{sship.get("to")} {sship.get("track")}')
-                if sys.stderr.isatty():
+                if progress:
+                    progress(k + 1, len(src_ships), "checking labels")
+                elif sys.stderr.isatty():
                     print(f"\r  checking label {k+1}/{len(src_ships)}", end='',
                           file=sys.stderr, flush=True)
-            if sys.stderr.isatty(): print(file=sys.stderr)
+            if not progress and sys.stderr.isatty(): print(file=sys.stderr)
     return a
 
 # ------------------------------------------------------------------------ cli
