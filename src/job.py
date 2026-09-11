@@ -25,7 +25,7 @@ class Result:
     pages: int
     checks: int
     failures: int
-    report_path: pathlib.Path
+    report_path: pathlib.Path | None
     dest: pathlib.Path | None
     message: str
 
@@ -54,26 +54,68 @@ class Job:
                 log(line)
             pages = len(ws.pdf_pages(str(self.dest)))
             ok = not audit.fail
+
+            discard_warning = ""
             if not ok:
-                self._discard()
-                log("nothing written — source left untouched")
-            res = Result(ok, pages, audit.checks, len(audit.fail),
-                         logstore.write_report("\n".join(lines), self.src.name, ok),
-                         self.dest if ok else None,
-                         "" if ok else f"{len(audit.fail)} checks failed")
+                if self._discard():
+                    log("nothing written — source left untouched")
+                else:
+                    discard_warning = self._discard_warning()
+                    log(discard_warning)
+
+            report_path, report_err = self._write_report("\n".join(lines), ok)
+            report_note = f"the report could not be saved: {report_err}" if report_err else ""
+
+            if ok:
+                message = report_note
+            else:
+                message = discard_warning or report_note or f"{len(audit.fail)} checks failed"
+
+            res = Result(ok, pages, audit.checks, len(audit.fail), report_path,
+                         self.dest if ok else None, message)
         except Exception as exc:
-            self._discard()
+            discard_ok = self._discard()
             lines.append("")
             lines.append(traceback.format_exc())
-            res = Result(False, 0, 0, 0,
-                         logstore.write_report("\n".join(lines), self.src.name, False),
-                         None, _friendly(exc))
+            discard_warning = ""
+            if not discard_ok:
+                discard_warning = self._discard_warning()
+                lines.append(discard_warning)
+
+            report_path, report_err = self._write_report("\n".join(lines), False)
+
+            if discard_warning:
+                message = discard_warning
+            elif report_err:
+                message = f"the report could not be saved: {report_err}"
+            else:
+                message = _friendly(exc)
+
+            res = Result(False, 0, 0, 0, report_path, None, message)
         emit({"kind": "done", "result": res})
         return res
 
     def _discard(self):
-        """A failed run must leave nothing printable behind."""
+        """A failed run must leave nothing printable behind.
+
+        Returns True if the destination is gone (including if it was never
+        there), False if removal failed and a printable file may still exist.
+        """
         try:
             self.dest.unlink(missing_ok=True)
+            return True
         except OSError:
-            pass
+            return False
+
+    def _discard_warning(self):
+        return f"could not delete {self.dest} — delete it yourself, do not print it"
+
+    def _write_report(self, text, ok):
+        """Never let a logging failure take down the run.
+
+        Returns (path, None) on success or (None, reason) on failure.
+        """
+        try:
+            return logstore.write_report(text, self.src.name, ok), None
+        except OSError as exc:
+            return None, str(exc)
