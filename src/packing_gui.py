@@ -19,6 +19,9 @@ class App:
         self.badge_visible = False
         self.src = None
         self.result = None
+        self.dest = None
+        self._after_id = None
+        root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         bar = ttk.Frame(root); bar.pack(fill="x")
         self.run_btn = ttk.Button(bar, text="Run", command=lambda: self.tab("run"))
@@ -149,12 +152,19 @@ class App:
         self.stage_text.set("starting…")
         self.bar.configure(value=0, maximum=100)
         self.log_lines = []
+        self.dest = dest
         self.show("working")
         job = jobmod.Job(self.src, dest)
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
-        self.root.after(100, self.pump)
+        self._after_id = self.root.after(100, self.pump)
 
     def pump(self):
+        try:
+            alive = self.root.winfo_exists()
+        except tk.TclError:
+            alive = False          # the interpreter itself is already gone
+        if not alive:
+            return
         while True:
             try:
                 ev = self.queue.get_nowait()
@@ -174,7 +184,24 @@ class App:
                 self.finish(ev["result"])
                 return
         if self.state == "working":
-            self.root.after(100, self.pump)
+            self._after_id = self.root.after(100, self.pump)
+
+    def on_close(self):
+        """The worker has no cancellation path, so closing mid-run leaves a
+        half-written file behind. Ask first, name the file, and only ask at
+        all when a run is actually in progress — the common case closes
+        immediately with no dialog."""
+        if self.state == "working":
+            if not messagebox.askyesno(
+                    "Job still running",
+                    f"A packing-slip job is still running. Closing now will "
+                    f"leave a half-written file at {self.dest} — do not "
+                    f"print it.\n\nClose anyway?"):
+                return
+        if self._after_id is not None:
+            self.root.after_cancel(self._after_id)
+            self._after_id = None
+        self.root.destroy()
 
     def finish(self, result):
         self.result = result

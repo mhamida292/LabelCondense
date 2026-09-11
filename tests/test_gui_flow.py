@@ -14,7 +14,10 @@ def app(tmp_path, monkeypatch):
     root.withdraw()
     a = packing_gui.App(root)
     yield a
-    root.destroy()
+    try:
+        root.destroy()
+    except tk.TclError:
+        pass          # some tests destroy the root themselves
 
 def test_default_name_is_dated(app):
     assert app.default_name() == dt.date.today().strftime("%Y-%m-%d-slips.pdf")
@@ -106,8 +109,10 @@ def test_finish_from_logs_tab_switches_to_run_tab(app, tmp_path):
     assert app.state == "done"
 
 def test_failed_result_badge_survives_tab_switch(app, tmp_path):
-    """tab('logs') clears the badge, so finish() must switch tabs before
-    marking failure, not after, or the badge is wiped immediately."""
+    """The real hazard: a failure can arrive while the user is already
+    sitting on the Logs tab. finish() switches to "run" and marks failure
+    afterward, so badge_visible must still end up True in that case too —
+    not just when the user was on the Run tab the whole time."""
     import job
     app.tab("logs")
     r = job.Result(False, 0, 3743, 14, tmp_path / "r.log", None, "14 checks failed")
@@ -115,3 +120,67 @@ def test_failed_result_badge_survives_tab_switch(app, tmp_path):
     app.pump()
     assert app.state == "failed"
     assert app.badge_visible is True
+
+
+def test_pump_after_root_destroyed_does_not_raise(app):
+    """Closing the window mid-run leaves the 100ms after() timer armed, with
+    a progress event already queued. When it next fires, pump() must bail
+    out quietly instead of touching widgets that no longer exist."""
+    app.show("working")
+    app.queue.put({"kind": "progress", "done": 1, "total": 2, "stage": "building slips"})
+    app.root.destroy()
+    app.pump()          # simulates the pending after() timer firing
+
+
+def test_declining_close_confirmation_keeps_window_open(app, tmp_path, monkeypatch):
+    """Closing mid-run must ask first, naming the half-written file, and
+    must leave the window open and the job running on a decline."""
+    import packing_gui
+    monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename",
+                         lambda **kw: str(tmp_path / "o.pdf"))
+    def fake_run(self, emit):
+        time.sleep(10)
+    monkeypatch.setattr(packing_gui.jobmod.Job, "run", fake_run)
+    asked = []
+    def fake_askyesno(title, message):
+        asked.append(message)
+        return False          # decline — stay open
+    monkeypatch.setattr(packing_gui.messagebox, "askyesno", fake_askyesno)
+    app.pick_file(str(tmp_path / "in.pdf"))
+    app.root.update()
+    assert app.state == "working"
+    app.on_close()
+    assert asked and str(tmp_path / "o.pdf") in asked[0]
+    assert app.root.winfo_exists()
+    assert app.state == "working"
+
+
+def test_accepting_close_confirmation_closes_the_window(app, tmp_path, monkeypatch):
+    """A confirmed close during a run must cancel the pending timer and
+    actually close the window."""
+    import packing_gui
+    monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename",
+                         lambda **kw: str(tmp_path / "o.pdf"))
+    def fake_run(self, emit):
+        time.sleep(10)
+    monkeypatch.setattr(packing_gui.jobmod.Job, "run", fake_run)
+    monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
+    app.pick_file(str(tmp_path / "in.pdf"))
+    app.root.update()
+    assert app.state == "working"
+    app.on_close()
+    with pytest.raises(tk.TclError):
+        app.root.winfo_exists()
+
+
+def test_closing_with_no_run_in_progress_does_not_ask(app, monkeypatch):
+    """The common case — nothing running — must close immediately with no
+    dialog."""
+    import packing_gui
+    called = []
+    monkeypatch.setattr(packing_gui.messagebox, "askyesno",
+                         lambda *a, **k: called.append(1) or True)
+    app.on_close()
+    assert called == []
+    with pytest.raises(tk.TclError):
+        app.root.winfo_exists()
