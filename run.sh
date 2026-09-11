@@ -5,8 +5,8 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-TOOL=.packing
-IN=inbox; OUTBOX=outbox; ARCH=$TOOL/archive; LOGS=$TOOL/logs
+TOOL=src
+IN=inbox; OUTBOX=outbox; ARCH=.packing/archive; LOGS=.packing/logs
 KEEP_DAYS=30                 # archives and logs older than this are pruned
 DEEP=--deep
 
