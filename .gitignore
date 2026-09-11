@@ -1,0 +1,13 @@
+# Customer data — buyer names, street addresses, tracking numbers.
+# None of this belongs in version control.
+inbox/
+outbox/
+.packing/archive/
+.packing/logs/
+
+# Belt and braces: no export or log should ever be committed from anywhere.
+*.pdf
+*.log
+
+# run.sh recreates inbox/, outbox/ and .packing/{archive,logs} on every run,
+# so a fresh clone needs nothing kept here.
