@@ -1,4 +1,4 @@
-"""The four places this program has to care which OS it is on."""
+"""OS-conditional code: opening PDFs for printing, revealing folders, and managing the Linux desktop menu."""
 import os, pathlib, subprocess, sys
 
 def _data_home():
@@ -38,16 +38,30 @@ def remember_desktop_choice(yes):
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("declined\n")
 
+def _quote_exec_path(exe):
+    """Quote a path for the Exec= line per freedesktop desktop-entry spec.
+
+    Escapes backslashes first, then ", `, and $ with backslashes,
+    then wraps the result in double quotes. The %f argument stays outside.
+    """
+    # Escape backslashes first, then the other reserved characters
+    escaped = exe.replace("\\", "\\\\")
+    escaped = escaped.replace('"', '\\"')
+    escaped = escaped.replace("`", "\\`")
+    escaped = escaped.replace("$", "\\$")
+    return f'"{escaped}"'
+
 def install_desktop_entry(exe):
     p = desktop_entry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    quoted_exe = _quote_exec_path(exe)
     p.write_text(
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=Packing Slips\n"
         "Comment=Rebuild a Whatnot export into print-ready packing slips\n"
         "Icon=document-print\n"
-        f"Exec={exe} %f\n"
+        f"Exec={quoted_exe} %f\n"
         "Terminal=false\n"
         "MimeType=application/pdf;\n"
         "Categories=Utility;\n",
