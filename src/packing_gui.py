@@ -41,6 +41,9 @@ class App:
         self.panes["run"].pack(fill="both", expand=True)
         self.show("idle")
 
+        logstore.prune(30)
+        self._build_logs(self.panes["logs"])
+
     # ---------------------------------------------------------- navigation
     def tab(self, which):
         self.current_tab = which
@@ -62,8 +65,59 @@ class App:
         self.badge_visible = True
         self.logs_btn.configure(text="Logs ●")
 
+    # ---------------------------------------------------------------- logs
+    def _build_logs(self, pane):
+        top = ttk.Frame(pane); top.pack(fill="x", padx=12, pady=(10, 6))
+        self.picker = ttk.Combobox(top, state="readonly", values=[])
+        self.picker.pack(fill="x")
+        self.picker.bind("<<ComboboxSelected>>",
+                         lambda e: self.select_report(self.picker.current()))
+
+        self.logbox = tk.Text(pane, height=10, wrap="word", font=("TkFixedFont", 9))
+        self.logbox.pack(fill="both", expand=True, padx=12)
+        self.logbox.configure(state="disabled")
+
+        foot = ttk.Frame(pane); foot.pack(fill="x", padx=12, pady=8)
+        ttk.Button(foot, text="Save report…", command=self.save_report).pack(side="right")
+        ttk.Button(foot, text="Open folder",
+                   command=lambda: platform_bits.reveal(logstore.log_dir())).pack(side="right", padx=6)
+
+    def log_text(self):
+        return self.logbox.get("1.0", "end-1c")
+
+    def _set_log(self, text):
+        self.logbox.configure(state="normal")
+        self.logbox.delete("1.0", "end")
+        self.logbox.insert("1.0", text)
+        self.logbox.see("end")
+        self.logbox.configure(state="disabled")
+
     def refresh_logs(self):
-        pass          # Task 9
+        self.reports = logstore.list_reports()
+        labels = [logstore.label(r) for r in self.reports]
+        if self.state == "working":
+            labels = ["This run"] + labels
+        self.picker.configure(values=labels)
+        if labels:
+            self.picker.current(0)
+
+    def select_report(self, index):
+        if self.state == "working" and index == 0:
+            self._set_log("\n".join(getattr(self, "log_lines", [])))
+            return
+        offset = 1 if self.state == "working" else 0
+        r = self.reports[index - offset]
+        body = r.path.read_text(encoding="utf-8").splitlines()
+        if body and body[0].startswith("#meta "):
+            body = body[1:]
+        self._set_log("\n".join(body))
+
+    def save_report(self):
+        target = filedialog.asksaveasfilename(
+            title="Save report", initialfile="packing-slips-report.txt",
+            defaultextension=".txt", filetypes=[("Text files", "*.txt")])
+        if target:
+            pathlib.Path(target).write_text(self.log_text(), encoding="utf-8")
 
     # ---------------------------------------------------------------- idle
     def _build_idle(self, f):
@@ -224,7 +278,10 @@ class App:
         self.show("idle")
 
     def append_log(self, line):
-        pass          # Task 9
+        self.logbox.configure(state="normal")
+        self.logbox.insert("end", line + "\n")
+        self.logbox.see("end")
+        self.logbox.configure(state="disabled")
 
 def main():
     root = tk.Tk()
