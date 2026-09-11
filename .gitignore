@@ -11,3 +11,9 @@ outbox/
 
 # run.sh recreates inbox/, outbox/ and .packing/{archive,logs} on every run,
 # so a fresh clone needs nothing kept here.
+
+# SDD scratch
+.superpowers/
+.venv/
+__pycache__/
+.pytest_cache/
