@@ -339,6 +339,16 @@ class Audit:
             print(f"    ... and {len(self.fail)-40} more")
         return not self.fail
 
+def kinds_detail(kinds):
+    """Point at where the slip/label pattern first breaks. Truncating the head
+    just prints a screenful of correct 'SBSB...' and hides the one page that
+    matters."""
+    i = re.match(r'(?:S+B)*', kinds).end()
+    if i >= len(kinds):
+        return f'{len(kinds)} pages, ends mid-shipment: ...{kinds[-20:]}'
+    return (f'page {i+1} unexpected {kinds[i]!r}: '
+            f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
+
 def verify(src, out, deep=False):
     a = Audit()
     raw_s, src_ships = load(src)
@@ -348,11 +358,15 @@ def verify(src, out, deep=False):
     # ---- structure
     a.ok(len(out_ships) == len(src_ships), 'shipment count',
          f'{len(out_ships)} vs {len(src_ships)}')
+    # A shipment is one or more slip pages followed by exactly one label. Dense
+    # slips legitimately run to a second page, so the stride is not fixed at 2.
     kinds = ''.join('S' if 'Packing Slip' in p else 'B' for p in out_pages)
-    a.ok(kinds == 'SB' * len(src_ships), 'strict slip/label alternation',
-         kinds[:60])
-    a.ok(len(out_pages) == 2 * len(src_ships), 'page count',
-         f'{len(out_pages)} vs {2*len(src_ships)}')
+    a.ok(re.fullmatch(r'(?:S+B)+', kinds) is not None, 'slip/label grouping',
+         kinds_detail(kinds))
+    a.ok(kinds.count('B') == len(src_ships), 'label count',
+         f"{kinds.count('B')} vs {len(src_ships)} shipments")
+    a.ok(len(out_pages) == kinds.count('S') + kinds.count('B'), 'page count',
+         f"{len(out_pages)} vs {kinds.count('S')} slip + {kinds.count('B')} label")
 
     # ---- global item ledger
     src_orders, out_orders = {}, {}
@@ -363,9 +377,13 @@ def verify(src, out, deep=False):
 
     # ---- per shipment
     for k, (spages, sship, sitems) in enumerate(src_ships):
-        opage = out_pages[2 * k]
         gr = group_items(sitems)
         tag = f'shipment {k} ({sship.get("to")})'
+        # the shipment's own slip pages, however many it took
+        opages = out_ships[k][0] if k < len(out_ships) else []
+        if not a.ok(bool(opages), f'{tag} slip present'):
+            continue
+        opage = '\n'.join(out_pages[n - 1] for n in opages)
 
         # recipient + full address block must survive
         sto, _ = address(raw_s[spages[0] - 1])
@@ -436,7 +454,10 @@ def verify(src, out, deep=False):
         with tempfile.TemporaryDirectory() as td:
             for k, (spages, sship, _) in enumerate(src_ships):
                 si = label_bitmap(src, spages[-1] + 1, td)
-                oi = label_bitmap(out, 2 * (k + 1), td)
+                opages = out_ships[k][0] if k < len(out_ships) else []
+                if not a.ok(bool(opages), f'shipment {k} slip present'):
+                    continue
+                oi = label_bitmap(out, opages[-1] + 1, td)
                 a.ok(si is not None and oi is not None,
                      f'shipment {k} label present')
                 if si is None or oi is None: continue

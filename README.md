@@ -58,12 +58,15 @@ If a file says **`FAIL`**, don't print it. Nothing is written to `outbox/`, and
 the export stays in `inbox/` so a retry is just re-running `./run.sh`. The
 reason is logged; send me `.packing/logs/<date>.log` and I'll fix it.
 
-A pass is not a formality — each file is checked with ~3,700 assertions
-(tracking numbers, addresses, every `#N`, every price, per-shipment and grand
-totals, and every label compared pixel-by-pixel against its source and confirmed
-paired with the right shipment). The audit is mutation-tested: corrupting a
-subtotal produces 304 failures, renumbering the `#`s produces 546, misfiling the
-labels produces 152.
+A pass is not a formality — each file is checked with roughly 26 assertions per
+shipment (tracking numbers, addresses, every `#N`, every price, per-shipment and
+grand totals, and every label compared pixel-by-pixel against its source and
+confirmed paired with the right shipment). A 122-shipment export runs 3,244
+checks; a 157-shipment one runs 4,395.
+
+The audit is mutation-tested. Against the 122-shipment export: misfiling the
+labels produces 122 failures, renumbering every `#` produces 302, corrupting
+every subtotal produces 123.
 
 ### Options
 
@@ -112,6 +115,15 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   is what a thermal printer does anyway — that's why output is ~3 MB, not 24 MB.
 - **A single unit keeps its `#` inline** on the product row. Giving every unit
   its own row pushes dense slips onto a second page and undoes the grouping.
+- **A dense slip may legitimately run to two pages.** The renderer already emits
+  as many slip pages as the items need, so a shipment is *one or more* slip pages
+  followed by exactly one label — the stride is not fixed at two. `verify()` used
+  to assume it was, in four places (`out_pages[2 * k]`, `label_bitmap(out, 2 *
+  (k + 1))`, and the two structural asserts); a 26-item order was the first to
+  overflow and it failed the audit with 19 cascading errors on a correctly built
+  PDF. The auditor now takes its page grouping from `load()`, which groups
+  consecutive slip pages into a shipment. Don't reintroduce stride-2 arithmetic.
+
 ### Known limitations
 
 - Order IDs aren't printed — eleven 10-digit IDs don't fit a 4×6. They're
