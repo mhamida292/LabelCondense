@@ -100,8 +100,11 @@ class App:
         self.picker.configure(values=labels)
         if labels:
             self.picker.current(0)
+            self.select_report(0)
 
     def select_report(self, index):
+        if index < 0:
+            return
         if self.state == "working" and index == 0:
             self._set_log("\n".join(getattr(self, "log_lines", [])))
             return
@@ -116,8 +119,13 @@ class App:
         target = filedialog.asksaveasfilename(
             title="Save report", initialfile="packing-slips-report.txt",
             defaultextension=".txt", filetypes=[("Text files", "*.txt")])
-        if target:
+        if not target:
+            return
+        try:
             pathlib.Path(target).write_text(self.log_text(), encoding="utf-8")
+        except OSError:
+            messagebox.showerror(
+                "Can't save there", f"The report could not be saved to {target}.")
 
     # ---------------------------------------------------------------- idle
     def _build_idle(self, f):
