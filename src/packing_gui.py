@@ -298,15 +298,24 @@ class App:
             "Add to your applications menu?",
             "Add Packing Slips to your applications menu, so you can find it "
             "without hunting for this file?\n\nYou'll only be asked once.")
-        platform_bits.remember_desktop_choice(yes)
-        if yes:
-            try:
+        try:
+            if yes:
                 platform_bits.install_desktop_entry(sys.executable)
+            else:
+                platform_bits.remember_desktop_choice(False)
+        except OSError:
+            if not yes:
+                # User declined, remember failed. Accept it silently; will ask again next time.
+                return
+            # User accepted, install failed. Try to mark "already asked" so we don't keep nagging.
+            try:
+                platform_bits.remember_desktop_choice(False)
+                msg = "It will not ask again."
             except OSError:
-                messagebox.showerror(
-                    "Could not add menu entry",
-                    "The application menu entry could not be created, but Packing Slips works normally. "
-                    "You can try again by running the app again or creating the menu entry manually.")
+                msg = "You can try again later."
+            messagebox.showerror(
+                "Could not add menu entry",
+                f"The application menu entry could not be created, but Packing Slips works normally. {msg}")
 
 def main():
     root = tk.Tk()
