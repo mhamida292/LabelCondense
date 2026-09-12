@@ -291,9 +291,27 @@ class App:
         self.logbox.see("end")
         self.logbox.configure(state="disabled")
 
+    def maybe_offer_desktop_entry(self):
+        if not platform_bits.should_offer_desktop_entry():
+            return
+        yes = messagebox.askyesno(
+            "Add to your applications menu?",
+            "Add Packing Slips to your applications menu, so you can find it "
+            "without hunting for this file?\n\nYou'll only be asked once.")
+        platform_bits.remember_desktop_choice(yes)
+        if yes:
+            try:
+                platform_bits.install_desktop_entry(sys.executable)
+            except OSError:
+                messagebox.showerror(
+                    "Could not add menu entry",
+                    "The application menu entry could not be created, but Packing Slips works normally. "
+                    "You can try again by running the app again or creating the menu entry manually.")
+
 def main():
     root = tk.Tk()
     app = App(root)
+    app.maybe_offer_desktop_entry()
     if len(sys.argv) > 1:                 # dropped on the icon
         app.pick_file(sys.argv[1])
     root.mainloop()
