@@ -6,32 +6,44 @@ re-interleaves them with the original shipping labels.
 
 ---
 
-## Daily use
+## Download
+
+Go to the [Releases page](https://github.com/mhamida292/LabelCondense/releases)
+and get one file. There is nothing to install.
+
+| | |
+|---|---|
+| **Windows** | `packing-slips.exe` — double-click it. The first time, Windows says "Windows protected your PC" because the file is not code-signed. Click **More info**, then **Run anyway**. |
+| **Linux** | `packing-slips` — run `chmod +x packing-slips` once, then double-click. Needs Ubuntu 22.04 or newer. |
+
+Then: drag a Whatnot export onto the icon, or open the app and click
+**Choose file…**. Pick where to save, wait about 90 seconds while the progress
+bar runs, and print.
+
+**If it says `DO NOT PRINT`, don't print it.** Nothing was saved. Open the
+**Logs** tab, click **Save report…**, and send that file over.
+
+The download is around 100 MB because it carries its own copy of Ghostscript
+and Poppler, so nothing has to be installed separately. See
+[NOTICE.md](NOTICE.md).
+
+---
+
+## The command-line version
+
+The original folder-based workflow still works, and is what's used on the
+machine this was built for.
 
 1. Drop the Whatnot export(s) into **`inbox/`**
-2. Run it — either way works:
-   - **Double-click `Run packing slips`** — opens a terminal window, shows live
-     progress, and stays open at the end so you can read the result.
-   - **Or in a terminal:** press **F4** in Dolphin (opens a terminal already in
-     this folder), then type `./run.sh`
+2. In a terminal, run `./run.sh` (press **F4** in Dolphin to open one already
+   in this folder)
 3. Print from **`outbox/`**
 
-That's the whole routine. Everything else takes care of itself.
+You watch it work — a `rendering 84/152` counter ticks up per file, then a
+one-line result. A full run is roughly 90 seconds per export.
 
-```
-Packing Logistics/
-├── inbox/               ← drop exports here
-├── outbox/              ← print from here
-├── Run packing slips    ← double-click this
-├── run.sh               ← or run this in a terminal
-└── README.md
-```
-
-You watch it work either way — a `rendering 84/152` counter ticks up per file,
-then a one-line result. A full run is roughly 90 seconds per export.
-
-(`.packing/` is a hidden folder holding the tool, processed sources and logs.
-You never need to open it. Press Ctrl+H in Dolphin if you want to see it.)
+(`.packing/` is a hidden folder holding processed sources and logs. You never
+need to open it. Press Ctrl+H in Dolphin if you want to see it.)
 
 ### What a run looks like
 

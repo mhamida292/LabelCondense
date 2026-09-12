@@ -5,6 +5,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SRC="${1:?usage: smoke_test.sh EXPORT.pdf}"
 
+# The image is overridable so CI can smoke-test against the same floor it
+# builds on: SMOKE_IMAGE=ubuntu:22.04 packaging/smoke_test.sh export.pdf
+IMAGE="${SMOKE_IMAGE:-ubuntu:devel}"
+
 # ubuntu:devel, not 22.04: the bundle links against the build host's glibc
 # (this machine runs Ubuntu 26.04 / glibc 2.43 — both Python's libpython and
 # system Tcl/Tk are built against it), and glibc is forward-compatible only,
@@ -15,7 +19,7 @@ SRC="${1:?usage: smoke_test.sh EXPORT.pdf}"
 # below.
 docker run --rm \
   -v "$PWD/dist:/app:ro" -v "$(realpath "$SRC"):/in.pdf:ro" \
-  ubuntu:devel \
+  "$IMAGE" \
   bash -c '
     set -e
     command -v gs        && { echo "FAIL: gs present, not a clean room"; exit 1; } || true
