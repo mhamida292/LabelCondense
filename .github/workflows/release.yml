@@ -26,7 +26,7 @@ jobs:
       - run: python packaging/collect_binaries.py
       - run: pyinstaller --clean --noconfirm packaging/packing.spec
       - name: Smoke-test the bundle against the glibc floor
-        run: SMOKE_IMAGE=ubuntu:22.04 packaging/smoke_test.sh tests/fixtures/smoke.pdf
+        run: packaging/smoke_test.sh tests/fixtures/smoke.pdf
         continue-on-error: true      # no committed fixture yet; see README
       - uses: actions/upload-artifact@v4
         with:

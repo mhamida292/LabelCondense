@@ -24,10 +24,15 @@ def stage_gs_resources():
     """Copy gs's Resource/Init/lib tree (found via `gs --help`'s search path,
     typically /usr/share/ghostscript/<ver>) so a frozen gs can initialize
     without the host having Ghostscript installed."""
-    candidates = sorted(glob.glob("/usr/share/ghostscript/*/Resource/Init/gs_init.ps"))
+    candidates = glob.glob("/usr/share/ghostscript/*/Resource/Init/gs_init.ps")
     if not candidates:
         sys.exit("missing /usr/share/ghostscript/*/Resource/Init/gs_init.ps — is ghostscript installed?")
-    version_dir = pathlib.Path(candidates[-1]).parents[2]
+    if len(candidates) > 1:
+        # Picking by string sort would choose 9.55.0 over 10.06.0, since "9" > "1".
+        # Rather than guess a version-comparison rule, refuse and let a human say.
+        sys.exit("more than one Ghostscript install found; remove one or stage by hand:\n  "
+                 + "\n  ".join(sorted(candidates)))
+    version_dir = pathlib.Path(candidates[0]).parents[2]
     if GS_RESOURCES.exists():
         shutil.rmtree(GS_RESOURCES)
     shutil.copytree(version_dir / "Resource", GS_RESOURCES / "Resource")
@@ -48,7 +53,15 @@ def main():
             if not target.exists():
                 shutil.copy2(lib, target)
     stage_gs_resources()
-    print(f"staged {len(list(OUT.iterdir()))} files into {OUT}")
+
+    # A silent partial harvest — ldd yielding nothing usable — produces a
+    # bundle that looks fine and dies 90 seconds into a real run. Three tools
+    # alone is the signature of that; a real harvest runs to dozens of files.
+    staged = list(OUT.iterdir())
+    if len(staged) < len(TOOLS) + 10:
+        sys.exit(f"staging looks incomplete: only {len(staged)} files in {OUT}. "
+                 "Check that ldd reported shared libraries for each tool.")
+    print(f"staged {len(staged)} files into {OUT}")
     print(f"staged gs Resource/lib tree into {GS_RESOURCES}")
 
 if __name__ == "__main__":

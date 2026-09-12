@@ -1,6 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 import pathlib, sys
 root = pathlib.Path(SPECPATH).parent
+
+# Everything staged by collect_binaries.py goes to bin/, because that is where
+# whatnot_slips._bin() looks for the tool executables when frozen. The .so
+# files in there look redundant — PyInstaller's own dependency walker finds
+# and re-collects most of them at the top level, which is what LD_LIBRARY_PATH
+# actually resolves against at runtime. Don't "clean up" the bin/ copies: the
+# staging step is what guarantees the executables themselves are present.
 binaries = [(str(p), "bin") for p in (root / "packaging" / "bin").glob("*")]
 
 # libxcb.so.1 is a transitive dependency of gs/poppler (via libX11) that

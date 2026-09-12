@@ -5,18 +5,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SRC="${1:?usage: smoke_test.sh EXPORT.pdf}"
 
-# The image is overridable so CI can smoke-test against the same floor it
-# builds on: SMOKE_IMAGE=ubuntu:22.04 packaging/smoke_test.sh export.pdf
-IMAGE="${SMOKE_IMAGE:-ubuntu:devel}"
-
-# ubuntu:devel, not 22.04: the bundle links against the build host's glibc
-# (this machine runs Ubuntu 26.04 / glibc 2.43 — both Python's libpython and
-# system Tcl/Tk are built against it), and glibc is forward-compatible only,
-# so an older image can't run it. ubuntu:devel is the closest stock image
-# with a matching-or-newer glibc; a machine on an older Ubuntu should build
-# (and smoke-test) with its own toolchain rather than this exact tag. This
-# is unrelated to Ghostscript and Poppler, which stay absent from the image
-# below.
+# Default to the glibc floor the Releases page promises (Ubuntu 22.04+), so
+# this script can actually catch a floor regression. A bundle built on a
+# newer glibc will fail to start here — that is the test working, not a bug.
+#
+# On a dev machine newer than the floor (this one runs glibc 2.43, which both
+# libpython and system Tcl/Tk link against), a locally built bundle cannot
+# satisfy 22.04. Override to sanity-check the bundling itself:
+#     SMOKE_IMAGE=ubuntu:devel packaging/smoke_test.sh export.pdf
+# That proves Ghostscript and Poppler travel correctly, but says nothing
+# about the floor — only a CI build on ubuntu-22.04 can prove that.
+IMAGE="${SMOKE_IMAGE:-ubuntu:22.04}"
 docker run --rm \
   -v "$PWD/dist:/app:ro" -v "$(realpath "$SRC"):/in.pdf:ro" \
   "$IMAGE" \
