@@ -318,6 +318,14 @@ class App:
                 f"The application menu entry could not be created, but Packing Slips works normally. {msg}")
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "out.pdf"
+            res = jobmod.Job(sys.argv[2], out, deep=False).run(lambda e: None)
+        print(f"selftest: ok={res.ok} checks={res.checks} failures={res.failures}")
+        sys.exit(0 if res.ok else 1)
+
     root = tk.Tk()
     app = App(root)
     app.maybe_offer_desktop_entry()

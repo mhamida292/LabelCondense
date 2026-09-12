@@ -17,3 +17,9 @@ outbox/
 .venv/
 __pycache__/
 .pytest_cache/
+
+# PyInstaller build artifacts
+build/
+dist/
+packaging/bin/
+packaging/gs-resources/
