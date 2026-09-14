@@ -1,19 +1,28 @@
 """OS-conditional code: opening PDFs for printing, revealing folders, and managing the Linux desktop menu."""
 import os, pathlib, subprocess, sys
 
+def _windows():
+    """Whether we are on Windows, as an indirection tests can fake.
+
+    Tests must patch this, never os.name: pathlib reads os.name when it
+    constructs a Path, so a faked os.name makes Path() build the wrong
+    concrete class and raise NotImplementedError on Python <= 3.12.
+    """
+    return os.name == "nt"
+
 def _data_home():
     base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
     return pathlib.Path(base)
 
 def open_for_print(path):
-    if os.name == "nt":
+    if _windows():
         os.startfile(str(path), "print")       # noqa: F821 - Windows only
     else:
         subprocess.Popen(["xdg-open", str(path)])
 
 def reveal(path):
     d = path if path.is_dir() else path.parent
-    if os.name == "nt":
+    if _windows():
         subprocess.Popen(["explorer", str(d)])
     else:
         subprocess.Popen(["xdg-open", str(d)])
@@ -25,7 +34,7 @@ def _choice_file():
     return _data_home() / "packing-slips" / "desktop-entry-declined"
 
 def should_offer_desktop_entry():
-    if os.name == "nt":
+    if _windows():
         return False
     if not getattr(sys, "frozen", False):
         return False
