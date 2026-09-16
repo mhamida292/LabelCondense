@@ -11,7 +11,7 @@ re-interleave the result with the original 4x6 shipping-label images.
 Requires: poppler-utils (pdftotext/pdfimages/pdfinfo), ghostscript, Pillow.
 """
 import argparse, base64, glob, hashlib, os, re, subprocess, sys, tempfile, zlib
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 from PIL import Image
 
@@ -145,20 +145,30 @@ def parse_shipment(pages):
     return ship, items
 
 def address(pagetext):
-    """Split the two-column To:/From: header at the x of 'From:'."""
-    to, frm, col = [], [], None
+    """Split the two-column To:/From: header at the x of 'From:'. The block
+    runs to the QTY table header, blank lines included: a long username wraps
+    its NEW badge onto a line of its own, and pdftotext then leaves a blank
+    line before the name and street, so stopping at the first blank line
+    silently dropped the whole address."""
+    return [x for x in header_lines(pagetext, 'to') if x], \
+           [x for x in header_lines(pagetext, 'from') if x]
+
+def header_region(pagetext):
+    """The raw lines from the To:/From: line up to (not including) QTY."""
+    out = None
     for ln in pagetext.split('\n'):
-        if col is None:
-            if 'To:' in ln and 'From:' in ln:
-                col = ln.index('From:')
-                to.append(ln[:col].strip()); frm.append(ln[col:].strip())
-            continue
-        if not ln.strip():
-            if to and frm: break
+        if out is None:
+            if 'To:' in ln and 'From:' in ln: out = [ln]
             continue
         if ln.lstrip().startswith('QTY'): break
-        to.append(ln[:col].strip()); frm.append(ln[col:].strip())
-    return [x for x in to if x], [x for x in frm if x]
+        out.append(ln)
+    return out or []
+
+def header_lines(pagetext, side):
+    region = header_region(pagetext)
+    if not region: return []
+    col = region[0].index('From:')
+    return [(ln[:col] if side == 'to' else ln[col:]).strip() for ln in region]
 
 def load(pdf):
     """-> [(slip_page_numbers, ship, items)] in document order."""
@@ -410,6 +420,15 @@ def verify(src, out, deep=False, progress=None):
         if not a.ok(bool(opages), f'{tag} slip present'):
             continue
         opage = '\n'.join(out_pages[n - 1] for n in opages)
+
+        # every word of the source To:/From: header must reach the slip. This
+        # deliberately ignores columns and lines, so it does not share
+        # address()'s idea of where the block ends and cannot share its bugs.
+        swords = Counter(renderable(clean(' '.join(header_region(raw_s[spages[0] - 1])))).split())
+        owords = Counter(renderable(clean(' '.join(header_region(out_pages[opages[0] - 1])))).split())
+        missing = swords - owords
+        a.ok(bool(swords) and not missing, f'{tag} header words',
+             ' '.join(sorted(missing))[:60] or 'no header found')
 
         # recipient + full address block must survive
         sto, _ = address(raw_s[spages[0] - 1])
