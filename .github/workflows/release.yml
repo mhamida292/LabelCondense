@@ -30,8 +30,8 @@ jobs:
         continue-on-error: true      # no committed fixture yet; see README
       - uses: actions/upload-artifact@v4
         with:
-          name: packing-slips-linux
-          path: dist/packing-slips
+          name: label-condense-linux
+          path: dist/label-condense
 
   windows:
     runs-on: windows-latest
@@ -47,8 +47,8 @@ jobs:
       - run: pyinstaller --clean --noconfirm packaging/packing.spec
       - uses: actions/upload-artifact@v4
         with:
-          name: packing-slips-windows
-          path: dist/packing-slips.exe
+          name: label-condense-windows
+          path: dist/label-condense.exe
 
   release:
     needs: [linux, windows]
@@ -61,14 +61,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/packing-slips-linux/packing-slips
-            artifacts/packing-slips-windows/packing-slips.exe
+            artifacts/label-condense-linux/label-condense
+            artifacts/label-condense-windows/label-condense.exe
           body: |
             Download one file and double-click it. Nothing to install.
 
-            - **Windows:** `packing-slips.exe`. Windows will warn that it is
+            - **Windows:** `label-condense.exe`. Windows will warn that it is
               unsigned — choose **More info → Run anyway**.
-            - **Linux:** `packing-slips`. Run `chmod +x packing-slips` once.
+            - **Linux:** `label-condense`. Run `chmod +x label-condense` once.
               Needs glibc 2.35 or newer (Ubuntu 22.04+).
 
             Bundles Ghostscript (AGPL) and Poppler (GPL) — see NOTICE.md.

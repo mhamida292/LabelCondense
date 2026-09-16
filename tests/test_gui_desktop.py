@@ -18,7 +18,7 @@ def test_accepting_installs_entry(app, monkeypatch, tmp_path):
     import packing_gui, platform_bits, sys
     monkeypatch.setattr(platform_bits, "should_offer_desktop_entry", lambda: True)
     monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
-    monkeypatch.setattr(sys, "executable", "/opt/packing-slips")
+    monkeypatch.setattr(sys, "executable", "/opt/label-condense")
     app.maybe_offer_desktop_entry()
     assert platform_bits.desktop_entry_path().exists()
 
@@ -44,7 +44,7 @@ def test_oserror_on_install_does_not_propagate(app, monkeypatch):
     import packing_gui, platform_bits, sys
     monkeypatch.setattr(platform_bits, "should_offer_desktop_entry", lambda: True)
     monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
-    monkeypatch.setattr(sys, "executable", "/opt/packing-slips")
+    monkeypatch.setattr(sys, "executable", "/opt/label-condense")
     monkeypatch.setattr(platform_bits, "install_desktop_entry",
                         lambda exe: (_ for _ in ()).throw(OSError("Read-only filesystem")))
     shown_error = []
@@ -81,7 +81,7 @@ def test_failed_install_is_remembered(app, monkeypatch, tmp_path):
     import packing_gui, platform_bits, sys
     monkeypatch.setattr(platform_bits, "should_offer_desktop_entry", lambda: True)
     monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
-    monkeypatch.setattr(sys, "executable", "/opt/packing-slips")
+    monkeypatch.setattr(sys, "executable", "/opt/label-condense")
     monkeypatch.setattr(platform_bits, "install_desktop_entry",
                         lambda exe: (_ for _ in ()).throw(OSError("Read-only")))
     shown_error = []

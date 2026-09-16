@@ -1,4 +1,4 @@
-# Packing slips
+# Label Condense
 
 Rebuilds the Whatnot **Combined Labels + Packing Slips** export so repeated
 products collapse onto one line — keeping **every `#N` and its price** — and
@@ -13,8 +13,8 @@ and get one file. There is nothing to install.
 
 | | |
 |---|---|
-| **Windows** | `packing-slips.exe` — double-click it. The first time, Windows says "Windows protected your PC" because the file is not code-signed. Click **More info**, then **Run anyway**. |
-| **Linux** | `packing-slips` — run `chmod +x packing-slips` once, then double-click. Needs Ubuntu 22.04 or newer. |
+| **Windows** | `label-condense.exe` — double-click it. The first time, Windows says "Windows protected your PC" because the file is not code-signed. Click **More info**, then **Run anyway**. |
+| **Linux** | `label-condense` — run `chmod +x label-condense` once, then double-click. Needs Ubuntu 22.04 or newer. |
 
 Then: drag a Whatnot export onto the icon, or open the app and click
 **Choose file…**. Pick where to save, wait about 90 seconds while the progress

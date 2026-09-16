@@ -38,7 +38,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="packing-slips",
+    name="label-condense",
     console=False,
     upx=False,
 )

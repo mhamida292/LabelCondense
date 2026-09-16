@@ -4,7 +4,7 @@ which is a temp dir that vanishes, and never anywhere shared."""
 import datetime as dt, json, os, pathlib
 from dataclasses import dataclass
 
-APP = "PackingSlips"
+APP = "LabelCondense"
 
 @dataclass
 class Report:
@@ -13,16 +13,23 @@ class Report:
     source: str
     ok: bool
 
+def _adopt_legacy(base, old, new):
+    """The app was called Packing Slips; carry its data directory (reports,
+    the declined-menu-entry marker) over to the new name on first use."""
+    if (base / old).is_dir() and not (base / new).exists():
+        (base / old).rename(base / new)
+    return base / new
+
 def log_dir():
     override = os.environ.get("PACKING_LOG_DIR")
     if override:
         d = pathlib.Path(override)
     elif os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or (pathlib.Path.home() / "AppData/Local")
-        d = pathlib.Path(base) / APP / "logs"
+        d = _adopt_legacy(pathlib.Path(base), "PackingSlips", APP) / "logs"
     else:
         base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
-        d = pathlib.Path(base) / "packing-slips" / "logs"
+        d = _adopt_legacy(pathlib.Path(base), "packing-slips", "label-condense") / "logs"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

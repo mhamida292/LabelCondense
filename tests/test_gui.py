@@ -19,7 +19,7 @@ def test_starts_idle_on_run_tab(app):
     assert app.current_tab == "run"
 
 def test_window_title(app):
-    assert app.root.title() == "Packing Slips"
+    assert app.root.title() == "Label Condense"
 
 def test_states_are_mutually_exclusive(app):
     for name in ("idle", "working", "done", "failed"):

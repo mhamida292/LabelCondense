@@ -11,7 +11,7 @@ STATES = ("idle", "working", "done", "failed")
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Packing Slips")
+        root.title("Label Condense")
         root.minsize(460, 300)
         self.queue = queue.Queue()
         self.state = "idle"
@@ -117,7 +117,7 @@ class App:
 
     def save_report(self):
         target = filedialog.asksaveasfilename(
-            title="Save report", initialfile="packing-slips-report.txt",
+            title="Save report", initialfile="label-condense-report.txt",
             defaultextension=".txt", filetypes=[("Text files", "*.txt")])
         if not target:
             return
@@ -296,7 +296,7 @@ class App:
             return
         yes = messagebox.askyesno(
             "Add to your applications menu?",
-            "Add Packing Slips to your applications menu, so you can find it "
+            "Add Label Condense to your applications menu, so you can find it "
             "without hunting for this file?\n\nYou'll only be asked once.")
         try:
             if yes:
@@ -315,7 +315,7 @@ class App:
                 msg = "You can try again later."
             messagebox.showerror(
                 "Could not add menu entry",
-                f"The application menu entry could not be created, but Packing Slips works normally. {msg}")
+                f"The application menu entry could not be created, but Label Condense works normally. {msg}")
 
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":

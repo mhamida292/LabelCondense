@@ -28,9 +28,16 @@ def reveal(path):
         subprocess.Popen(["xdg-open", str(d)])
 
 def desktop_entry_path():
+    return _data_home() / "applications" / "label-condense.desktop"
+
+def _legacy_desktop_entry_path():
+    """Left behind by builds from when the app was called Packing Slips."""
     return _data_home() / "applications" / "packing-slips.desktop"
 
 def _choice_file():
+    return _data_home() / "label-condense" / "desktop-entry-declined"
+
+def _legacy_choice_file():
     return _data_home() / "packing-slips" / "desktop-entry-declined"
 
 def should_offer_desktop_entry():
@@ -38,7 +45,8 @@ def should_offer_desktop_entry():
         return False
     if not getattr(sys, "frozen", False):
         return False
-    return not (_choice_file().exists() or desktop_entry_path().exists())
+    return not (_choice_file().exists() or _legacy_choice_file().exists()
+                or desktop_entry_path().exists())
 
 def remember_desktop_choice(yes):
     if yes:
@@ -67,7 +75,7 @@ def install_desktop_entry(exe):
     p.write_text(
         "[Desktop Entry]\n"
         "Type=Application\n"
-        "Name=Packing Slips\n"
+        "Name=Label Condense\n"
         "Comment=Rebuild a Whatnot export into print-ready packing slips\n"
         "Icon=document-print\n"
         f"Exec={quoted_exe} %f\n"
@@ -76,4 +84,5 @@ def install_desktop_entry(exe):
         "Categories=Utility;\n",
         encoding="utf-8")
     p.chmod(0o755)
+    _legacy_desktop_entry_path().unlink(missing_ok=True)
     return p

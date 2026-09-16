@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prove dist/packing-slips works with no system poppler/ghostscript.
+# Prove dist/label-condense works with no system poppler/ghostscript.
 # Requires docker. Usage: packaging/smoke_test.sh /path/to/export.pdf
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,6 +23,6 @@ docker run --rm \
     set -e
     command -v gs        && { echo "FAIL: gs present, not a clean room"; exit 1; } || true
     command -v pdftotext && { echo "FAIL: poppler present"; exit 1; } || true
-    /app/packing-slips --selftest /in.pdf
+    /app/label-condense --selftest /in.pdf
   '
 echo "SMOKE OK"
