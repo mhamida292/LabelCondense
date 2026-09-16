@@ -257,9 +257,9 @@ def slip_ps(ship, grouped, to, frm):
         A(f"0.8 setlinewidth {M} {H-33} moveto {W-M} {H-33} lineto stroke")
         yy = H - 46
         A(f"8 HB (To:) {M} {yy} L")
-        A(f"8 HV ({esc(to[0].replace('To:','').strip())}) {M+18} {yy} L")
+        A(f"8 HV ({esc(clean(to[0].replace('To:','')))}) {M+18} {yy} L")
         A(f"8 HB (From:) {W/2} {yy} L")
-        A(f"8 HV ({esc(frm[0].replace('From:','').strip())}) {W/2+26} {yy} L")
+        A(f"8 HV ({esc(clean(frm[0].replace('From:','')))}) {W/2+26} {yy} L")
         yl = yr = yy - 10
         for ln in to[1:6]:  A(f"7.5 HV ({esc(ln)}) {M} {yl} L"); yl -= 9
         for ln in frm[1:6]: A(f"7.5 HV ({esc(ln)}) {W/2} {yr} L"); yr -= 9
