@@ -211,10 +211,15 @@ def group_items(items):
 def _num_ops(num, x):
     return [f"10.5 HB ({esc(num)}) {x:.1f} 0 L"]
 
+def display_name(e):
+    """What the product row prints. The SKU leads because it is what the
+    picker reads to find the bin."""
+    return f"[{e['sku']}] {e['product']}" if e.get('sku') else e['product']
+
 def build_rows(grouped):
     blocks = []
     for e in grouped:
-        b, ls = [], wrap(e['product'], NAME_W, 8.5, True)
+        b, ls = [], wrap(display_name(e), NAME_W, 8.5, True)
         head = [f"9 HB ({esc(str(e['qty']))}) {X_QTY} 0 L",
                 f"8.5 HB ({esc(ls[0])}) {X_NAME} 0 L",
                 f"9 HB ({esc('$%.2f' % e['subtotal'])}) {X_SUB} 0 R"]
@@ -434,6 +439,29 @@ class Audit:
         print(self.text(title))
         return not self.fail
 
+# The auditor's own view of SKUs. Not RE_SKU: the parser once glued SKU text
+# onto names and an audit that parsed the same way passed it.
+RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
+RE_OUT_SKU = re.compile(r'^\s*\d+\s+\[([^\]\s]+)\]', re.M)
+
+def audit_skus(a, tag, src_text, sitems, grouped, out_text):
+    """A wrong SKU sends the picker to the wrong bin, so it is held to the same
+    standard as a wrong #N."""
+    raw = sorted(m.group(1) for ln in src_text.split('\n')
+                 if (m := RE_SRC_SKU.search(ln)))
+    parsed = sorted(it['sku'] for it in sitems if it.get('sku'))
+    a.ok(raw == parsed, f'{tag} SKUs parsed', f'{parsed} vs source {raw}')
+    shown = set(RE_OUT_SKU.findall(out_text))
+    a.ok(shown == set(raw), f'{tag} SKUs on slip',
+         f'{sorted(shown)} vs source {sorted(set(raw))}')
+    flat = renderable(out_text)
+    for e in grouped:
+        if e.get('sku'):
+            first = renderable(e['product']).split(' ')[0]
+            a.ok(f"[{e['sku']}] {first}" in flat, f'{tag} SKU pairing',
+                 f"{e['sku']} {e['product'][:30]!r}")
+    a.ok('SKU ' not in out_text, f'{tag} no SKU text on slip')
+
 def kinds_detail(kinds):
     """Point at where the slip/label pattern first breaks. Truncating the head
     just prints a screenful of correct 'SBSB...' and hides the one page that
@@ -521,7 +549,7 @@ def verify(src, out, deep=False, progress=None):
 
         # every unit: # present, price present, nothing invented
         for e in gr:
-            for seg in wrap(e['product'], NAME_W, 8.5, True):
+            for seg in wrap(display_name(e), NAME_W, 8.5, True):
                 seg = renderable(seg)
                 a.ok(seg and seg in renderable(opage), f'{tag} product',
                      f'{e["product"][:34]!r} segment {seg[:34]!r}')
@@ -535,6 +563,9 @@ def verify(src, out, deep=False, progress=None):
                 if len(e['variants']) > 1:
                     a.ok('$%.2f' % v['price'] in opage, f'{tag} unit price',
                          f'{v["variant"]} ${v["price"]:.2f}')
+
+        stext = '\n'.join(raw_s[n - 1] for n in spages)
+        audit_skus(a, tag, stext, sitems, gr, opage)
 
     # ---- no order lost or invented
     a.ok(set(out_orders) == set(src_orders), 'order id set identical',
