@@ -748,9 +748,12 @@ def main():
     b.add_argument('src'); b.add_argument('-o', '--out', required=True)
     b.add_argument('--deep', action='store_true', help='pixel-check every label')
     b.add_argument('--no-verify', action='store_true')
+    b.add_argument('--no-brand', action='store_true',
+                   help='plain header, ignoring the saved branding')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
+    v.add_argument('--no-brand', action='store_true')
     args = ap.parse_args()
 
     try:
@@ -760,15 +763,19 @@ def main():
         return 1
 
 def _run(args):
+    brand = None
+    if not args.no_brand:
+        import branding            # lazily: branding imports this module
+        brand = branding.active()
+        for note in (brand.notes if brand else []):
+            print(f"branding: {note}")
     if args.cmd == 'build':
-        n, nsl, nlb = build(args.src, args.out)
+        n, nsl, nlb = build(args.src, args.out, brand=brand)
         size = os.path.getsize(args.out)
         print(f"built {args.out}: {n} shipments, {nsl} slip pages, {nlb} labels, "
               f"{size/1e6:.2f} MB")
         if args.no_verify: return 0
-        a = verify(args.src, args.out, deep=args.deep)
-    else:
-        a = verify(args.src, args.out, deep=args.deep)
+    a = verify(args.src, args.out, deep=args.deep, brand=brand)
     return 0 if a.report('AUDIT') else 1
 
 if __name__ == '__main__':
