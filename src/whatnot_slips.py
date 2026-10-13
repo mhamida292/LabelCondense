@@ -253,10 +253,11 @@ def build_rows(grouped):
         blocks.append(b)
     return blocks
 
-def slip_ps(ship, grouped, to, frm):
+def slip_ps(ship, grouped, to, frm, brand=None):
     blocks = build_rows(grouped)
     n = sum(e['qty'] for e in grouped); tot = sum(e['subtotal'] for e in grouped)
-    TOP_Y, BOT_Y = H - 116, 74.0
+    d = BAND if brand else 0         # a branded header pushes everything down
+    TOP_Y, BOT_Y = H - 116 - d, 74.0
     pages, cur, y = [], [], TOP_Y
     for b in blocks:
         need = sum(h for h, _ in b) + 3
@@ -284,10 +285,13 @@ def slip_ps(ship, grouped, to, frm):
              "/L { moveto show } def",
              "/R { 3 -1 roll dup stringwidth pop 4 -1 roll exch sub 3 -1 roll moveto show } def"]
         A = s.append
-        A(f"11 HB 0 setgray (Whatnot Packing Slip) {M} {H-26} L")
-        A(f"8 HV ({pi}/{len(pages)}) {W-M} {H-26} R")
-        A(f"0.8 setlinewidth {M} {H-33} moveto {W-M} {H-33} lineto stroke")
-        yy = H - 46
+        if brand:
+            A("0 setgray"); s.extend(brand_ops(brand, pi, len(pages)))
+        else:
+            A(f"11 HB 0 setgray (Whatnot Packing Slip) {M} {H-26} L")
+            A(f"8 HV ({pi}/{len(pages)}) {W-M} {H-26} R")
+        A(f"0.8 setlinewidth {M} {H-33-d} moveto {W-M} {H-33-d} lineto stroke")
+        yy = H - 46 - d
         A(f"8 HB (To:) {M} {yy} L")
         A(f"8 HV ({esc(clean(to[0].replace('To:','')))}) {M+18} {yy} L")
         A(f"8 HB (From:) {W/2} {yy} L")
@@ -295,7 +299,7 @@ def slip_ps(ship, grouped, to, frm):
         yl = yr = yy - 10
         for ln in to[1:6]:  A(f"7.5 HV ({esc(ln)}) {M} {yl} L"); yl -= 9
         for ln in frm[1:6]: A(f"7.5 HV ({esc(ln)}) {W/2} {yr} L"); yr -= 9
-        th = H - 100
+        th = H - 100 - d
         A(f"0.5 setlinewidth {M} {th+8} moveto {W-M} {th+8} lineto stroke")
         A(f"7 HB (QTY) {X_QTY} {th} L  7 HB (Name & Description) {X_NAME} {th} L")
         A(f"7 HB (Subtotal) {X_SUB} {th} R")
@@ -324,6 +328,48 @@ LOGO_W, LOGO_H = 108.0, 36.0     # 1.5 x 0.5 in
 LOGO_TOP = H - 12
 MSG_SIZE = 9
 MSG_W = W - M - (M + LOGO_W + 8) # 140 pt beside the logo box
+
+def brand_message_lines(brand):
+    """The message as it will print: up to two lines, in the width left over
+    once the logo box is (or isn't) taken."""
+    msg = renderable(brand.message)
+    if not msg:
+        return []
+    taken = brand.logo is not None or renderable(brand.shop_name)
+    return wrap(msg, MSG_W if taken else W - 2 * M, MSG_SIZE)[:2]
+
+def brand_ops(brand, pi, npages):
+    """Logo (or shop name) on the left, the message beside it, and
+    'Packing Slip n/m' in the corner -- load() and verify() find slip pages
+    by those words, so they stay on every page."""
+    ops = [f"7 HV (Packing Slip {pi}/{npages}) {W-M} {H-20} R"]
+    x = M
+    if brand.logo is not None:
+        w, h = brand.logo.size
+        ops.append(f"gsave {M} {LOGO_TOP - h * 0.24:.2f} translate "
+                   f"{w * 0.24:.2f} {h * 0.24:.2f} scale Logo grestore")  # 72/300
+        x = M + LOGO_W + 8
+    elif renderable(brand.shop_name):
+        size = shop_name_size(brand.shop_name) or 8
+        ops.append(f"{size} HB ({esc(renderable(brand.shop_name))}) {M} "
+                   f"{LOGO_TOP - LOGO_H / 2 - size * 0.35:.1f} L")
+        x = M + LOGO_W + 8
+    for k, ln in enumerate(brand_message_lines(brand)):
+        ops.append(f"{MSG_SIZE} HV ({esc(ln)}) {x:.1f} {H - 33 - 11 * k} L")
+    return ops
+
+def logo_prolog(im):
+    """Define the logo once; every slip page draws it with `Logo`. A string
+    DataSource is read from its start on each use, so a 300-page job carries
+    one copy of the logo, not 300."""
+    w, h = im.size
+    data = base64.a85encode(im.tobytes()).decode()
+    return ("/LogoData <~"
+            + "\n".join(data[i:i+120] for i in range(0, len(data), 120))
+            + "~> def\n"
+            f"/Logo {{ /DeviceGray setcolorspace << /ImageType 1 /Width {w} "
+            f"/Height {h} /BitsPerComponent 1 /Decode [0 1] "
+            f"/ImageMatrix [{w} 0 0 -{h} 0 {h}] /DataSource LogoData >> image }} def\n")
 
 def shop_name_size(name):
     """Largest bold size, 16 down to 8 pt, at which the name fills the logo
@@ -396,14 +442,16 @@ def label_ps(im):
             + "\ngrestore\nshowpage\n")
 
 # ---------------------------------------------------------------------- build
-def build(src, out, quiet=False, progress=None):
+PS_HEAD = f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"
+
+def build(src, out, quiet=False, progress=None, brand=None):
     raw, data = load(src)
-    ps = [f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"]
+    ps = [PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "")]
     nsl = nlb = 0
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
-            sp = slip_ps(ship, group_items(items), to, frm)
+            sp = slip_ps(ship, group_items(items), to, frm, brand)
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
@@ -425,6 +473,28 @@ def build(src, out, quiet=False, progress=None):
     finally:
         os.unlink(psfile)
     return len(data), nsl, nlb
+
+def preview_png(brand, png):
+    """One sample slip through the real renderer, at a thermal head's 203 dpi
+    in pure black and white -- what the Branding tab shows is what prints."""
+    ship = dict(svc='USPS Ground Advantage', dims='12 x 12 x 12 in',
+                track='9300120762602517212464', weight='7.0 oz')
+    items = [dict(qty=1, name='ROSEY BALL #2', order='1', price=2.0, sku='A-T-63'),
+             dict(qty=1, name='ROSEY BALL #3', order='2', price=3.0, sku='A-T-63'),
+             dict(qty=1, name='CRUNCHY LOBSTER #1', order='3', price=3.0, sku='TB200-477')]
+    to = ['To: buyer123', 'Jane Buyer', '1 Main St', 'Springfield, IL 62701']
+    frm = ['From: ' + (renderable(brand.shop_name) or 'your shop'),
+           '2 Shop Rd', 'Townsville, CA 90001']
+    ps = PS_HEAD + (logo_prolog(brand.logo) if brand.logo is not None else "") \
+         + slip_ps(ship, group_items(items), to, frm, brand)[0]
+    with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
+        f.write(ps); psfile = f.name
+    try:
+        _spawn([_bin('gs'), '-q', '-dBATCH', '-dNOPAUSE', '-sDEVICE=pngmono',
+                '-r203', '-dFIXEDMEDIA', f'-dDEVICEWIDTHPOINTS={W}',
+                f'-dDEVICEHEIGHTPOINTS={H}', f'-sOutputFile={png}', psfile])
+    finally:
+        os.unlink(psfile)
 
 # --------------------------------------------------------------------- verify
 class Audit:
@@ -484,6 +554,19 @@ def audit_skus(a, tag, src_text, sitems, grouped, out_text):
                  f"{e['sku']} {e['product'][:30]!r}")
     a.ok('SKU ' not in out_text, f'{tag} no SKU text on slip')
 
+def audit_brand(a, brand, slip_texts):
+    """The message is cosmetic but promised on every page; checked line by
+    line because a two-line message lands on two text lines."""
+    if brand is None:
+        return
+    lines = brand_message_lines(brand)
+    if not lines:
+        return
+    for i, t in enumerate(slip_texts, 1):
+        flat = renderable(t)
+        a.ok(all(ln in flat for ln in lines), f'slip page {i} brand message',
+             lines[0][:40])
+
 def kinds_detail(kinds):
     """Point at where the slip/label pattern first breaks. Truncating the head
     just prints a screenful of correct 'SBSB...' and hides the one page that
@@ -494,7 +577,7 @@ def kinds_detail(kinds):
     return (f'page {i+1} unexpected {kinds[i]!r}: '
             f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
 
-def verify(src, out, deep=False, progress=None):
+def verify(src, out, deep=False, progress=None, brand=None):
     a = Audit()
     raw_s, src_ships = load(src)
     raw_o, out_ships = load(out)
@@ -588,6 +671,8 @@ def verify(src, out, deep=False, progress=None):
 
         stext = '\n'.join(raw_s[n - 1] for n in spages)
         audit_skus(a, tag, stext, sitems, gr, opage)
+
+    audit_brand(a, brand, [p for p in out_pages if 'Packing Slip' in p])
 
     # ---- no order lost or invented
     a.ok(set(out_orders) == set(src_orders), 'order id set identical',
