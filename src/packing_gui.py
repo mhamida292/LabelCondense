@@ -177,6 +177,21 @@ class App:
 
         self.brand_widgets = [on, name, choose, remove, preview, self.brand_save_btn]
         self._show_logo()
+        # a field load() had to drop would otherwise just look blank
+        if saved.notes:
+            self.brand_status.set("Note: " + "; ".join(saved.notes))
+
+        unsaved = lambda *_: self.brand_status.set("Not saved yet")
+        self.brand_on.trace_add("write", unsaved)
+        self.shop_name.trace_add("write", unsaved)
+        self.message_box.edit_modified(False)
+        self.message_box.bind("<<Modified>>", self._message_edited)
+
+    def _message_edited(self, _event):
+        # Tk raises <<Modified>> only when the flag flips, so clear it each time
+        if self.message_box.edit_modified():
+            self.brand_status.set("Not saved yet")
+            self.message_box.edit_modified(False)
 
     def _lock_branding(self, locked):
         """Settings are read once when a run starts; editing mid-run would
@@ -212,7 +227,9 @@ class App:
             return
         try:
             self.form_logo = branding.import_logo(path)
-        except (OSError, ValueError) as exc:
+        # not just OSError/ValueError: Pillow also raises DecompressionBombError,
+        # MemoryError and others, and any of them would surface as a traceback
+        except Exception as exc:
             messagebox.showerror("Can't use that image", str(exc))
             return
         self.brand_status.set("Not saved yet")

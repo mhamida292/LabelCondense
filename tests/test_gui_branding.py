@@ -1,3 +1,4 @@
+import json, types
 import pytest
 from PIL import Image
 
@@ -87,8 +88,47 @@ def test_start_hands_the_saved_brand_to_the_job(app, monkeypatch, tmp_path):
     monkeypatch.setattr(app, "ask_destination", lambda: tmp_path / "o.pdf")
     monkeypatch.setattr(packing_gui.jobmod.Job, "run",
                         lambda self, emit: seen.setdefault("brand", self.brand))
+    class InlineThread:              # runs the job on start(), so no race
+        def __init__(self, target, args=(), daemon=None):
+            self.go = lambda: target(*args)
+        def start(self):
+            self.go()
+    monkeypatch.setattr(packing_gui, "threading", types.SimpleNamespace(Thread=InlineThread))
     app.src = tmp_path / "in.pdf"
     app.start()
     app.root.after_cancel(app._after_id)
-    import time; time.sleep(0.2)
     assert seen["brand"].shop_name == "Squish Co"
+
+def test_an_unreadable_image_error_is_shown_not_raised(app, errors, monkeypatch, tmp_path):
+    def bomb(path):
+        raise Image.DecompressionBombError("too many pixels")
+    monkeypatch.setattr(branding, "import_logo", bomb)
+    app.choose_logo(str(tmp_path / "huge.png"))
+    assert errors == ["too many pixels"] and app.form_brand().logo is None
+
+def test_editing_the_form_says_not_saved_until_save(app, errors):
+    assert app.brand_status.get() == ""
+    app.shop_name.set("Squish Co")
+    assert app.brand_status.get() == "Not saved yet"
+    app.save_branding()
+    assert app.brand_status.get() == "Saved"
+    app.brand_on.set(not app.brand_on.get())
+    assert app.brand_status.get() == "Not saved yet"
+    app.save_branding()
+    app.message_box.insert("end", " Bye")
+    app.root.update()
+    assert app.brand_status.get() == "Not saved yet"
+
+def test_load_notes_show_on_the_branding_tab():
+    import packing_gui
+    (branding.settings_dir() / "settings.json").write_text(json.dumps({"shop_name": 7}))
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    root.withdraw()
+    try:
+        a = packing_gui.App(root)
+        assert a.brand_status.get() == "Note: branding shop_name has the wrong type; using the default"
+    finally:
+        root.destroy()
