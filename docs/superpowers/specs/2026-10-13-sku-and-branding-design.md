@@ -227,3 +227,30 @@ Message:   [ 2-line text box ]
 ## Build order
 
 SKU first (it fixes a live bug and is correctness-critical), then branding.
+
+## Refinements made while planning
+
+These supersede the sections above where they differ.
+
+- **Where rendering lives.** Band drawing (`brand_ops`, `logo_prolog`,
+  `preview_png`) and its geometry live in `whatnot_slips.py`, beside the rest
+  of the renderer. `branding.py` only stores, validates and prepares the logo,
+  and imports `whatnot_slips` for text metrics — never the other way round
+  (the CLI imports `branding` lazily inside `_run`).
+- **The logo is stored on Save,** not on Choose. Choosing converts and
+  previews it; Save writes `logo.png` (or deletes it on Remove) together with
+  `settings.json`, so an unsaved form never changes what prints.
+- **Logo trimming.** `import_logo` crops surrounding white before fitting, so
+  an image with wide margins still fills the box; an image with no black at
+  all is refused ("The image is blank.").
+- **Band geometry.** Logo box 108 × 36 pt, top edge 12 pt from the page top;
+  `Packing Slip n/m` 7 pt at baseline H−20, right-aligned; message 9 pt,
+  baselines H−33 and H−44, 140 pt wide beside the box; rule at H−52. The rest
+  of the page shifts down 19 pt (`BAND = 19`). The default message measures
+  127 pt and fits on one line.
+- **Shop name** must fit the box at 8 pt or larger; Save refuses it otherwise.
+- **Hand-edited settings.** A stored message that no longer fits 2 lines is
+  not printed, and a note says so in the run log. Never truncated.
+- **No separate "Packing Slip on every page" check:** `load()` groups output
+  pages by that text and the slip/label grouping check already fails if one
+  is missing, so the extra check would be a tautology.
