@@ -161,3 +161,69 @@ def test_a_sku_shape_the_parser_cannot_read_fails():
     """'SKU AB 12' matches neither strict regex; only the loose word count sees it."""
     src = SRC.replace("SKU TB200-477", "SKU AB 12")
     assert "s0 SKUs counted" in labels(run_audit(src=src))
+
+def test_skus_swapped_between_items_fail():
+    """The codes all exist, the slip agrees with the parse, and every pairing
+    matches -- only reading which Order each raw SKU line sits under shows the
+    picker is being sent to the wrong bin."""
+    _, items = ws.parse_shipment([SRC])
+    items[0]["sku"], items[1]["sku"] = items[1]["sku"], items[0]["sku"]
+    out = (GOOD_OUT.replace("[A-T-63]", "[X]").replace("[TB200-477]", "[A-T-63]")
+                   .replace("[X]", "[TB200-477]"))
+    assert labels(run_audit(out=out, items=items)) == ["s0 SKU belongs to its order"]
+
+def test_an_item_without_a_sku_does_not_inherit_the_one_above():
+    src = SRC + SKULL[len(HEAD):]
+    _, items = ws.parse_shipment([src])
+    assert [it["sku"] for it in items] == ["A-T-63", "TB200-477", None]
+    out = GOOD_OUT + "1    CRUNCHY SKULL #3                            $3.00\n"
+    assert run_audit(src=src, out=out).fail == []
+    items[2]["sku"] = items[1]["sku"]
+    assert "s0 SKU belongs to its order" in labels(run_audit(src=src, items=items))
+
+def unit_fails(items, out):
+    a = ws.Audit()
+    ws.audit_units(a, "s0", ws.group_items(items), out)
+    return labels(a)
+
+def test_a_bracketed_sku_cannot_stand_in_for_a_missing_number():
+    items = [_item("ROSEY BALL #2", "AB#2", "1")]
+    assert unit_fails(items, "1    [AB#2] ROSEY BALL #2      $2.00\n") == []
+    assert unit_fails(items, "1    [AB#2] ROSEY BALL         $2.00\n") == ["s0 variant"]
+
+def test_a_bracketed_sku_cannot_stand_in_for_a_unit_price():
+    items = [_item("ROSEY BALL", "$3.00", "1", 3.0),
+             _item("ROSEY BALL", "$3.00", "2", 2.0)]
+    out = "2    [$3.00] ROSEY BALL     $5.00\n     no #   $2.00\n     no #\n"
+    assert unit_fails(items, out) == ["s0 unit price"]
+
+# --- a SKU too long to share line 1 with the first word ---------------------
+LONG_SRC = HEAD + """1    SQUISHMALLOW DELUXE #1       Order 1437000001           $12.00
+     BIDDING ON ONE              SKU SQUISH-2026-0001-RED
+
+1    JUMBO CRUNCHY DUCK #2        Order 1437000002            $8.00
+     BIDDING ON ONE              SKU SQUISH-2026-0002-BLU
+
+"""
+
+def rendered(items):
+    import tempfile
+    from test_brand_render import ps_to_pdf
+    from test_slip_golden import SHIP, TO, FRM
+    with tempfile.TemporaryDirectory() as td:
+        return ws.pdf_pages(str(ps_to_pdf(
+            ws.slip_ps(SHIP, ws.group_items(items), TO, FRM), td)))[0]
+
+def test_a_sku_wrapped_alone_onto_line_one_still_pairs():
+    """wrap() puts the bracket alone on line 1, so pdftotext reads
+    '[SKU] $12.00 SQUISHMALLOW ...': the row's subtotal sits between them."""
+    _, items = ws.parse_shipment([LONG_SRC])
+    e = ws.group_items(items)[0]
+    assert ws.wrap(ws.display_name(e), ws.NAME_W, 8.5, True)[0] == "[SQUISH-2026-0001-RED]"
+    assert run_audit(src=LONG_SRC, out=rendered(items)).fail == []
+
+def test_a_wrapped_sku_on_the_wrong_product_still_fails():
+    _, items = ws.parse_shipment([LONG_SRC])
+    swapped = [dict(it) for it in items]
+    swapped[0]["sku"], swapped[1]["sku"] = items[1]["sku"], items[0]["sku"]
+    assert "s0 SKU pairing" in labels(run_audit(src=LONG_SRC, out=rendered(swapped)))

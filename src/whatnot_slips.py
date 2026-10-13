@@ -545,6 +545,7 @@ class Audit:
 # SKU token, is what catches it.
 RE_SKU_WORD = re.compile(r'\bSKU\b')
 RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
+RE_SRC_ORDER = re.compile(r'\bOrder (\d+)\b')
 # The qty is optional: pdftotext sometimes lifts a lone '#N' above its row and
 # leaves the '[SKU] name' text on a line of its own.
 RE_OUT_SKU = re.compile(r'^\s*(?:\d+\s+)?\[([^\]\s]+)\]', re.M)
@@ -558,6 +559,17 @@ def audit_skus(a, tag, src_text, sitems, grouped, out_text):
     a.ok(len(RE_SKU_WORD.findall(src_text)) == len(parsed), f'{tag} SKUs counted',
          f'{len(RE_SKU_WORD.findall(src_text))} SKU tokens vs {len(parsed)} parsed')
     a.ok(raw == parsed, f'{tag} SKUs parsed', f'{parsed} vs source {raw}')
+    # which item a SKU belongs to, from the raw lines: a SKU line sits under
+    # its item's "Order N". The checks above and below compare codes, so a
+    # parse that hands a SKU to the wrong item would pass them all.
+    owner, order = {}, None
+    for ln in src_text.split('\n'):
+        if (m := RE_SRC_ORDER.search(ln)): order = m.group(1)
+        if (m := RE_SRC_SKU.search(ln)): owner[order] = m.group(1)
+    mine = {it['order']: it['sku'] for it in sitems if it.get('sku')}
+    bad = sorted((o for o in set(owner) | set(mine) if owner.get(o) != mine.get(o)), key=str)
+    a.ok(not bad, f'{tag} SKU belongs to its order',
+         f'order {bad[0]}: {mine.get(bad[0])} vs source {owner.get(bad[0])}' if bad else '')
     shown = set(RE_OUT_SKU.findall(out_text))
     a.ok(shown == set(raw), f'{tag} SKUs on slip',
          f'{sorted(shown)} vs source {sorted(set(raw))}')
@@ -565,13 +577,19 @@ def audit_skus(a, tag, src_text, sitems, grouped, out_text):
     for e in grouped:
         if e.get('sku'):
             first = renderable(e['product']).split(' ')[0]
-            a.ok(f"[{e['sku']}] {first}" in flat, f'{tag} SKU pairing',
+            # a SKU too wide to share line 1 with the first word wraps alone,
+            # and pdftotext reads the row's subtotal in between
+            pair = re.escape(f"[{e['sku']}]") + r'(?: \$[\d,]+\.\d\d)? ' + re.escape(first)
+            a.ok(re.search(pair, flat) is not None, f'{tag} SKU pairing',
                  f"{e['sku']} {e['product'][:30]!r}")
     a.ok('SKU ' not in out_text, f'{tag} no SKU text on slip')
 
 def audit_brand(a, brand, slip_texts):
     """The message is cosmetic but promised on every page; checked line by
-    line because a two-line message lands on two text lines."""
+    line because a two-line message lands on two text lines. It reuses the
+    renderer's wrap on purpose (an exception to the independence rule): the
+    message is cosmetic, so a bug the two share can at worst pass a badly
+    wrapped thank-you line."""
     if brand is None:
         return
     lines = brand_message_lines(brand)
@@ -581,6 +599,28 @@ def audit_brand(a, brand, slip_texts):
         flat = renderable(t)
         a.ok(all(ln in flat for ln in lines), f'slip page {i} brand message',
              lines[0][:40])
+
+def audit_units(a, tag, grouped, opage):
+    """Every unit: # present, price present, nothing invented. -> the units."""
+    # a SKU is free seller text: '[AB#2]' must not pass for a missing '#2'
+    bare = re.sub(r'\[[^\]\s]+\]', '', opage)
+    units = []
+    for e in grouped:
+        for seg in wrap(display_name(e), NAME_W, 8.5, True):
+            seg = renderable(seg)
+            a.ok(seg and seg in renderable(opage), f'{tag} product',
+                 f'{e["product"][:34]!r} segment {seg[:34]!r}')
+        for v in e['variants']:
+            units.append(v)
+            if v['variant']:
+                a.ok(re.search(re.escape(v['variant']) + r'(?!\d)', bare) is not None,
+                     f'{tag} variant', f'{e["product"]} {v["variant"]}')
+            else:
+                a.ok('no #' in bare, f'{tag} unnumbered marker', e['product'])
+            if len(e['variants']) > 1:
+                a.ok('$%.2f' % v['price'] in bare, f'{tag} unit price',
+                     f'{v["variant"]} ${v["price"]:.2f}')
+    return units
 
 def kinds_detail(kinds):
     """Point at where the slip/label pattern first breaks. Truncating the head
@@ -667,22 +707,8 @@ def verify(src, out, deep=False, progress=None, brand=None):
                  f'{tag} total matches source footer',
                  f'{sship["stated"][1]} vs {t:.2f}')
 
-        # every unit: # present, price present, nothing invented
-        for e in gr:
-            for seg in wrap(display_name(e), NAME_W, 8.5, True):
-                seg = renderable(seg)
-                a.ok(seg and seg in renderable(opage), f'{tag} product',
-                     f'{e["product"][:34]!r} segment {seg[:34]!r}')
-            for v in e['variants']:
-                out_orders[v['order']] = True
-                if v['variant']:
-                    a.ok(re.search(re.escape(v['variant']) + r'(?!\d)', opage) is not None,
-                         f'{tag} variant', f'{e["product"]} {v["variant"]}')
-                else:
-                    a.ok('no #' in opage, f'{tag} unnumbered marker', e['product'])
-                if len(e['variants']) > 1:
-                    a.ok('$%.2f' % v['price'] in opage, f'{tag} unit price',
-                         f'{v["variant"]} ${v["price"]:.2f}')
+        for v in audit_units(a, tag, gr, opage):
+            out_orders[v['order']] = True
 
         stext = '\n'.join(raw_s[n - 1] for n in spages)
         audit_skus(a, tag, stext, sitems, gr, opage)
@@ -753,7 +779,10 @@ def main():
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
-    v.add_argument('--no-brand', action='store_true')
+    v.add_argument('--no-brand', action='store_true',
+                   help='skip the brand message check; otherwise verify expects '
+                        'the currently saved message, so pass this to re-check '
+                        'an output built without branding')
     args = ap.parse_args()
 
     try:
