@@ -26,19 +26,23 @@ def settings_in_tmp(tmp_path, monkeypatch):
     monkeypatch.setenv("LABEL_CONDENSE_SETTINGS_DIR", str(tmp_path / "settings"))
 
 @pytest.fixture(scope="session", autouse=True)
-def windows_binaries():
-    """Unfrozen on Windows, _bin() returns bare names like 'gs', which are not
-    on PATH there. Point it at what fetch_windows_binaries.ps1 downloaded, and
-    give gs its resource tree the way packaging/rthook_gs_env.py does."""
+def windows_binaries(tmp_path_factory):
+    """Unfrozen, _bin() returns bare names ('gs', 'pdftotext') and relies on
+    PATH. On Windows CI those live in packaging/bin, and gs is gswin64c.exe:
+    put a gs.exe copy and packaging/bin on PATH, and give gs its resource
+    tree the way packaging/rthook_gs_env.py does."""
+    import shutil
     pkg = pathlib.Path(__file__).resolve().parent.parent / "packaging"
-    if os.name != "nt" or not (pkg / "bin").is_dir():
+    if os.name != "nt" or not (pkg / "bin" / "gswin64c.exe").is_file():
         yield
         return
-    import whatnot_slips as ws
+    gs = tmp_path_factory.mktemp("gs")
+    shutil.copy(pkg / "bin" / "gswin64c.exe", gs / "gs.exe")
+    shutil.copy(pkg / "bin" / "gsdll64.dll", gs)
     res = pkg / "gs-resources"
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(ws, "_bin", lambda name: str(
-            pkg / "bin" / ws._WIN_NAMES.get(name, name + ".exe")))
+        mp.setenv("PATH", os.pathsep.join([str(gs), str(pkg / "bin"),
+                                           os.environ.get("PATH", "")]))
         mp.setenv("GS_LIB", os.pathsep.join(
             str(res / d) for d in ("Resource/Init", "lib", "iccprofiles")))
         yield
