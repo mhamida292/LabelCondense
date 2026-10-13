@@ -100,6 +100,10 @@ RE_SHIP  = re.compile(r'^\s*(USPS .+?)\s{2,}(.+?)\s*$')
 # 2-letter country code). Spelling out both shapes rather than a bare length
 # floor is what keeps an item's own '#12' out of this line.
 RE_TRACK = re.compile(r'^\s*#(\d{20,}|[A-Z]{2}\d{9}[A-Z]{2})\s{2,}([\d.]+ \w+)\s*$')
+# Whatnot prints a listing's SKU in the Attributes column, on the line after
+# "Order N". It has to come off the line before the rest joins the name: a
+# wrapped name puts its #N after the SKU, so cutting at #N kept the SKU text.
+RE_SKU   = re.compile(r'(?:^|\s{2,})SKU (\S+)\s*$')
 
 def clean(s):
     return re.sub(r'\s+', ' ', s.replace('■', ' ')).strip(' •-')
@@ -134,9 +138,15 @@ def parse_shipment(pages):
     for ln in lines:
         if (m := RE_ITEM.match(ln)):
             cur = dict(qty=int(m.group(1)), name=m.group(2), order=m.group(3),
-                       price=float(m.group(4).replace(',', '')))
+                       price=float(m.group(4).replace(',', '')), sku=None)
             items.append(cur)
         elif cur is not None:
+            # the SKU first: it can share a line with the seller boilerplate
+            # ("Follow • Bookmark     SKU A-T-63"), which ends the block
+            if cur['sku'] is None and (s := RE_SKU.search(ln)):
+                cur['sku'], ln = s.group(1), ln[:s.start()]
+                if not ln.strip():
+                    continue
             # an item block ends at a blank line, the boilerplate, or the footer
             if (not ln.strip() or RE_BOIL.search(ln) or RE_TOTAL.match(ln)
                     or ln.startswith('QTY') or 'Packing Slip' in ln or 'USPS' in ln):
@@ -185,11 +195,14 @@ def load(pdf):
     return pages, [([n + 1 for n, _ in g], *parse_shipment([p for _, p in g])) for g in groups]
 
 def group_items(items):
+    # SKU is part of the key: two listings sharing a name but not a SKU sit in
+    # different bins, so they must not share a line
     g = OrderedDict()
     for it in items:
         product, variant = split_variant(it['name'])
-        e = g.setdefault(product.upper(),
-                         dict(product=product, qty=0, subtotal=0.0, variants=[]))
+        sku = it.get('sku')
+        e = g.setdefault((product.upper(), sku),
+                         dict(product=product, sku=sku, qty=0, subtotal=0.0, variants=[]))
         e['qty'] += it['qty']; e['subtotal'] += it['price']
         e['variants'].append(dict(variant=variant, price=it['price'], order=it['order']))
     return list(g.values())
