@@ -181,10 +181,12 @@ def header_region(pagetext):
 def slip_body(pagetext):
     """The page from the To:/From: line down. A branded band above it holds
     the user's free text, which the audit must not read as slip facts (a
-    message saying '#1' or 'SKU ' would otherwise pass or fail checks)."""
+    message saying '#1' or 'SKU ' would otherwise pass or fail checks). The
+    real header is drawn once per page, under the band, so the LAST such line
+    is the anchor even if the band itself imitates one."""
     lines = pagetext.split('\n')
-    for i, ln in enumerate(lines):
-        if 'To:' in ln and 'From:' in ln:
+    for i in range(len(lines) - 1, -1, -1):
+        if 'To:' in lines[i] and 'From:' in lines[i]:
             return '\n'.join(lines[i:])
     return pagetext
 

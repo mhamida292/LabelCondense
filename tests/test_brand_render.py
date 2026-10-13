@@ -118,3 +118,8 @@ def test_branded_build_passes_the_audit_with_a_hostile_message(sku_pdf):
         ws.build(str(sku_pdf), str(out), quiet=True, brand=b)
         audit = ws.verify(str(sku_pdf), str(out), deep=False, brand=b)
     assert audit.fail == []
+
+
+def test_slip_body_ignores_a_band_that_imitates_the_header():
+    page = "Thanks! To: x From: y #7\nTo: real   From: me\nROSEY #1\n"
+    assert ws.slip_body(page).startswith("To: real")

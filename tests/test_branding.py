@@ -126,3 +126,17 @@ def test_unreadable_stored_logo_falls_back_with_a_note():
     (sdir() / "logo.png").write_text("corrupt")
     b = branding.load()
     assert b.logo is None and "logo" in b.notes[0]
+
+
+@pytest.mark.parametrize("kw", [{"message": "Hi! To: our fans"},
+                                {"shop_name": "From: Me"}])
+def test_save_refuses_address_anchor_words(kw):
+    with pytest.raises(ValueError, match="To:"):
+        branding.save(branding.Brand(enabled=True, **kw))
+    assert not (sdir() / "settings.json").exists()
+
+def test_hand_edited_anchor_words_are_dropped_with_a_note():
+    (sdir() / "settings.json").write_text(json.dumps(
+        {"brand_enabled": True, "shop_name": "From: Me", "message": "To: x"}))
+    b = branding.load()
+    assert b.shop_name == "" and b.message == "" and len(b.notes) == 2

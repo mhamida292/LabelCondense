@@ -41,6 +41,9 @@ def message_fits(text):
 def name_fits(name):
     return ws.shop_name_size(name) is not None
 
+def _has_anchor(text):
+    return "To:" in text or "From:" in text
+
 def problems(b):
     """Why `b` can't be saved, in words for the person; [] when it can.
     Refusing here is what keeps anything from being cut off on paper."""
@@ -49,6 +52,9 @@ def problems(b):
         out.append("The message is too long: it must fit on 2 lines.")
     if not name_fits(b.shop_name):
         out.append("The shop name is too long to fit in the logo space.")
+    if _has_anchor(b.shop_name) or _has_anchor(b.message):
+        out.append("The shop name and message can't contain \"To:\" or \"From:\" "
+                   "\u2014 the slip uses those words to find the address.")
     return out
 
 def load():
@@ -68,6 +74,10 @@ def load():
     if not name_fits(b.shop_name):
         b.notes.append("shop name too long to fit; not printed")
         b.shop_name = ""
+    for attr, what in (("shop_name", "shop name"), ("message", "message")):
+        if _has_anchor(getattr(b, attr)):
+            b.notes.append(f'branding {what} contains "To:" or "From:"; not printed')
+            setattr(b, attr, "")
     if _logo_path().exists():
         try:
             with Image.open(_logo_path()) as im:
