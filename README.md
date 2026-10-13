@@ -153,6 +153,7 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   overflow and it failed the audit with 19 cascading errors on a correctly built
   PDF. The auditor now takes its page grouping from `load()`, which groups
   consecutive slip pages into a shipment. Don't reintroduce stride-2 arithmetic.
+
 - **SKUs come off the line before it joins the name.** Whatnot prints a
   listing's SKU in the Attributes column on the line after `Order N`. The
   parser used to append that line to the name and cut at `#N` — which works
