@@ -8,7 +8,7 @@ re-interleave the result with the original 4x6 shipping-label images.
     ./whatnot_slips.py verify IN.pdf OUT.pdf       # audit an existing pair
     ./whatnot_slips.py verify IN.pdf OUT.pdf --deep   # + per-label pixel check
 
-Requires: poppler-utils (pdftotext/pdfimages/pdfinfo), ghostscript, Pillow.
+Requires: poppler-utils (pdftotext/pdfimages/pdftoppm), ghostscript, Pillow.
 """
 import argparse, base64, glob, hashlib, os, re, subprocess, sys, tempfile, zlib
 from collections import Counter, OrderedDict
@@ -95,7 +95,11 @@ RE_BOIL  = re.compile(r'Follow|Bookmark|Save Big|Have\.\.\.')
 RE_TOTAL = re.compile(r'^\s*(\d+) Items?\s+\$([\d,]+\.\d\d)\s*$')
 RE_TO    = re.compile(r'^To:\s*(\S+)')
 RE_SHIP  = re.compile(r'^\s*(USPS .+?)\s{2,}(.+?)\s*$')
-RE_TRACK = re.compile(r'^\s*#(\w{20,})\s{2,}([\d.]+ \w+)\s*$')
+# Domestic USPS issues a 20- or 22-digit IMpb barcode; an international
+# shipment carries a 13-character UPU S10 number instead (2 letters, 9 digits,
+# 2-letter country code). Spelling out both shapes rather than a bare length
+# floor is what keeps an item's own '#12' out of this line.
+RE_TRACK = re.compile(r'^\s*#(\d{20,}|[A-Z]{2}\d{9}[A-Z]{2})\s{2,}([\d.]+ \w+)\s*$')
 
 def clean(s):
     return re.sub(r'\s+', ' ', s.replace('■', ' ')).strip(' •-')
@@ -297,20 +301,55 @@ def slip_ps(ship, grouped, to, frm):
     return out
 
 # --------------------------------------------------------------------- labels
+LABEL_DPI = 300                        # 4x6 in at 300 dpi == the source rasters
+
+def _to_1bit(im):
+    """Whatnot already lays a landscape 6x4 First-Class label sideways on its
+    portrait page, so a rendered page needs no rotation of its own -- it comes
+    out oriented exactly as the old extract-and-rotate path left it. The guard
+    stays only for a page that is itself landscape."""
+    if im.width > im.height:
+        im = im.transpose(Image.ROTATE_90)
+    return im.convert('L').point(lambda p: 255 if p >= 128 else 0, '1')
+
 def label_bitmap(pdf, pageno, tmpdir):
-    """Extract the label image on `pageno` as a 1-bit PIL image (or None)."""
+    """Render the label page `pageno` as a 1-bit PIL image (or None).
+
+    Rendering the composited page, rather than digging an image out of it, is
+    deliberate. A label carrying a transparency mask makes `pdfimages` write
+    two files -- the artwork and the mask -- of byte-identical size, so
+    choosing between them by file size was decided by unsorted directory
+    order. It picked the blank mask and printed an empty label, twice, and the
+    audit agreed with itself because it extracted the same way (Sept 16
+    shipment 61, Sept 20 shipment 77). What the page renders to is what the
+    printer puts on the sticker; nothing else is worth comparing.
+    """
     for f in glob.glob(os.path.join(tmpdir, 'L*')): os.remove(f)
-    _spawn([_bin('pdfimages'), '-p', '-f', str(pageno), '-l', str(pageno),
+    _spawn([_bin('pdftoppm'), '-r', str(LABEL_DPI), '-gray',
+            '-f', str(pageno), '-l', str(pageno),
             pdf, os.path.join(tmpdir, 'L')])
     cand = [f for f in os.listdir(tmpdir) if f.startswith('L')]
     if not cand: return None
-    big = max(cand, key=lambda f: os.path.getsize(os.path.join(tmpdir, f)))
-    im = Image.open(os.path.join(tmpdir, big)).convert('L')
-    if im.width > im.height:
-        # First-Class letter labels are landscape 6x4; the page places them
-        # rotated 90 deg CCW so they fill the portrait sheet undistorted.
-        im = im.transpose(Image.ROTATE_90)
-    return im.point(lambda p: 255 if p >= 128 else 0, '1')
+    return _to_1bit(Image.open(os.path.join(tmpdir, cand[0])))
+
+def embedded_bitmap(pdf, pageno, tmpdir):
+    """The single 1-bit image this program itself embedded on `pageno`.
+
+    Only ever pointed at our own output, whose label pages carry exactly one
+    image and no mask, so there is nothing to choose between. Auditing the
+    output this way keeps the comparison pixel-exact while running down a
+    different path from the renderer -- the two cannot go blind together.
+    """
+    for f in glob.glob(os.path.join(tmpdir, 'E*')): os.remove(f)
+    _spawn([_bin('pdfimages'), '-p', '-f', str(pageno), '-l', str(pageno),
+            pdf, os.path.join(tmpdir, 'E')])
+    cand = [f for f in os.listdir(tmpdir) if f.startswith('E')]
+    if len(cand) != 1: return None
+    return _to_1bit(Image.open(os.path.join(tmpdir, cand[0])))
+
+def is_blank(im):
+    """True if nothing would print. A blank label is never a correct result."""
+    return im is None or not any(p == 0 for p in im.get_flattened_data())
 
 def label_ps(im):
     w, h = im.size
@@ -361,6 +400,13 @@ class Audit:
         self.checks += 1
         if not cond: self.fail.append((label, detail))
         return cond
+    def present(self, value, haystack, label):
+        """A fact the source never yielded is a failure, not a pass.
+
+        `'' in anything` is True, so auditing a missing value with a plain
+        `in` test silently reports OK — and the slip prints without it."""
+        return self.ok(bool(value) and value in haystack, label,
+                       repr(value) if value else 'missing from the source slip')
     def text(self, title):
         lines = [f"\n{title}",
                  f"  assertions run : {self.checks}",
@@ -439,11 +485,11 @@ def verify(src, out, deep=False, progress=None):
                      repr(probe[:40]))
 
         # shipping facts
-        a.ok(sship['track'] in opage, f'{tag} tracking', sship['track'])
-        a.ok(sship.get('weight', '') in opage, f'{tag} weight', sship.get('weight'))
-        a.ok(sship.get('dims', '') in opage, f'{tag} dims', sship.get('dims'))
-        svc = renderable(sship.get('svc', ''))
-        a.ok(svc in renderable(opage), f'{tag} service', svc)
+        a.present(sship.get('track', ''), opage, f'{tag} tracking')
+        a.present(sship.get('weight', ''), opage, f'{tag} weight')
+        a.present(sship.get('dims', ''), opage, f'{tag} dims')
+        a.present(renderable(sship.get('svc', '')), renderable(opage),
+                  f'{tag} service')
 
         # totals
         n = sum(e['qty'] for e in gr); t = sum(e['subtotal'] for e in gr)
@@ -502,10 +548,17 @@ def verify(src, out, deep=False, progress=None):
                 opages = out_ships[k][0] if k < len(out_ships) else []
                 if not a.ok(bool(opages), f'shipment {k} slip present'):
                     continue
-                oi = label_bitmap(out, opages[-1] + 1, td)
+                oi = embedded_bitmap(out, opages[-1] + 1, td)
                 a.ok(si is not None and oi is not None,
                      f'shipment {k} label present')
                 if si is None or oi is None: continue
+                # A label that would print nothing is never a correct result,
+                # however faithfully it matches. Checked on both sides so a
+                # blank in the export is caught too, not copied.
+                a.ok(not is_blank(si), f'shipment {k} source label not blank',
+                     sship.get('track', ''))
+                a.ok(not is_blank(oi), f'shipment {k} label not blank',
+                     sship.get('track', ''))
                 a.ok(si.size == oi.size, f'shipment {k} label size',
                      f'{si.size} vs {oi.size}')
                 a.ok(hashlib.sha256(si.tobytes()).digest() ==

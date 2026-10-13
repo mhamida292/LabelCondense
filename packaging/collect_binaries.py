@@ -2,7 +2,7 @@
 so PyInstaller can carry them. Run before building on Linux."""
 import glob, pathlib, shutil, subprocess, sys
 
-TOOLS = ["gs", "pdftotext", "pdfimages"]
+TOOLS = ["gs", "pdftotext", "pdfimages", "pdftoppm"]
 OUT = pathlib.Path(__file__).parent / "bin"
 
 # Ghostscript refuses to start without its init files (gs_init.ps) and

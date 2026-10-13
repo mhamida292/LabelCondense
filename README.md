@@ -120,9 +120,25 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   corrupts ZIP+4), and 173 → `hyphen`. Accented buyer names come through.
   Emoji and `™` are outside Latin-1 and become spaces — unavoidable, as the
   export's own text layer has no glyph mapping for them.
-- **First-Class labels are landscape** (1800×1200) and must be rotated 90° CCW
-  to fill the portrait sheet; parcel labels are already 1200×1800. Skipping this
-  squashes the barcode.
+- **Labels come from rendering the page, never from extracting its images.**
+  `pdfimages` writes a label's artwork *and* its transparency mask as separate
+  files of byte-identical size, so picking "the biggest one" was decided by
+  unsorted directory order. It chose the blank mask and printed an empty label
+  twice — Sept 16 shipment 61 (domestic Ground Advantage) and Sept 20 shipment
+  77 (First-Class International). Two of 732 shipments carried such a mask.
+  `label_bitmap()` now renders the page with `pdftoppm`, which composites the
+  mask exactly as the printer will. Don't reintroduce image extraction here.
+- **The auditor must not reuse the renderer's extraction path.** The blank
+  labels passed `--deep` with zero failures because `verify()` called the same
+  `label_bitmap()` on both sides and compared blank to blank. The auditor now
+  reads the output with `embedded_bitmap()` — a different route — and asserts
+  no label is blank on either side. This is the second time a shared helper
+  blinded the audit to its own bug; the first was `address()` (commit f5c214d).
+- **First-Class labels are landscape** (1800×1200), but Whatnot already lays
+  them sideways on a portrait page, so a rendered page needs no rotation of its
+  own — it arrives oriented exactly as the old extract-and-rotate path left it.
+  `_to_1bit()` still rotates a page that is *itself* landscape. Rotating a
+  correctly-placed label again squashes the barcode.
 - **Labels are reduced to 1-bit** (the source is 98.6% pure black/white), which
   is what a thermal printer does anyway — that's why output is ~3 MB, not 24 MB.
 - **A single unit keeps its `#` inline** on the product row. Giving every unit

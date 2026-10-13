@@ -93,7 +93,7 @@ Copy-Item (Join-Path $popBin "*") $out -Recurse -Force
 
 # A partial harvest produces a bundle that dies 90 seconds into a real run,
 # so fail loudly here instead.
-foreach ($required in @("gswin64c.exe", "gsdll64.dll", "pdftotext.exe", "pdfimages.exe")) {
+foreach ($required in @("gswin64c.exe", "gsdll64.dll", "pdftotext.exe", "pdfimages.exe", "pdftoppm.exe")) {
     if (-not (Test-Path (Join-Path $out $required))) {
         throw "staging incomplete: $required is missing from $out"
     }
