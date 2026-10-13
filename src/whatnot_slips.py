@@ -100,6 +100,10 @@ RE_SHIP  = re.compile(r'^\s*(USPS .+?)\s{2,}(.+?)\s*$')
 # 2-letter country code). Spelling out both shapes rather than a bare length
 # floor is what keeps an item's own '#12' out of this line.
 RE_TRACK = re.compile(r'^\s*#(\d{20,}|[A-Z]{2}\d{9}[A-Z]{2})\s{2,}([\d.]+ \w+)\s*$')
+# Whatnot prints a listing's SKU in the Attributes column, on the line after
+# "Order N". It has to come off the line before the rest joins the name: a
+# wrapped name puts its #N after the SKU, so cutting at #N kept the SKU text.
+RE_SKU   = re.compile(r'(?:^|\s{2,})SKU (\S+)\s*$')
 
 def clean(s):
     return re.sub(r'\s+', ' ', s.replace('■', ' ')).strip(' •-')
@@ -134,9 +138,15 @@ def parse_shipment(pages):
     for ln in lines:
         if (m := RE_ITEM.match(ln)):
             cur = dict(qty=int(m.group(1)), name=m.group(2), order=m.group(3),
-                       price=float(m.group(4).replace(',', '')))
+                       price=float(m.group(4).replace(',', '')), sku=None)
             items.append(cur)
         elif cur is not None:
+            # the SKU first: it can share a line with the seller boilerplate
+            # ("Follow • Bookmark     SKU A-T-63"), which ends the block
+            if cur['sku'] is None and (s := RE_SKU.search(ln)):
+                cur['sku'], ln = s.group(1), ln[:s.start()]
+                if not ln.strip():
+                    continue
             # an item block ends at a blank line, the boilerplate, or the footer
             if (not ln.strip() or RE_BOIL.search(ln) or RE_TOTAL.match(ln)
                     or ln.startswith('QTY') or 'Packing Slip' in ln or 'USPS' in ln):
@@ -168,6 +178,18 @@ def header_region(pagetext):
         out.append(ln)
     return out or []
 
+def slip_body(pagetext):
+    """The page from the To:/From: line down. A branded band above it holds
+    the user's free text, which the audit must not read as slip facts (a
+    message saying '#1' or 'SKU ' would otherwise pass or fail checks). The
+    real header is drawn once per page, under the band, so the LAST such line
+    is the anchor even if the band itself imitates one."""
+    lines = pagetext.split('\n')
+    for i in range(len(lines) - 1, -1, -1):
+        if 'To:' in lines[i] and 'From:' in lines[i]:
+            return '\n'.join(lines[i:])
+    return pagetext
+
 def header_lines(pagetext, side):
     region = header_region(pagetext)
     if not region: return []
@@ -185,11 +207,14 @@ def load(pdf):
     return pages, [([n + 1 for n, _ in g], *parse_shipment([p for _, p in g])) for g in groups]
 
 def group_items(items):
+    # SKU is part of the key: two listings sharing a name but not a SKU sit in
+    # different bins, so they must not share a line
     g = OrderedDict()
     for it in items:
         product, variant = split_variant(it['name'])
-        e = g.setdefault(product.upper(),
-                         dict(product=product, qty=0, subtotal=0.0, variants=[]))
+        sku = it.get('sku')
+        e = g.setdefault((product.upper(), sku),
+                         dict(product=product, sku=sku, qty=0, subtotal=0.0, variants=[]))
         e['qty'] += it['qty']; e['subtotal'] += it['price']
         e['variants'].append(dict(variant=variant, price=it['price'], order=it['order']))
     return list(g.values())
@@ -198,10 +223,15 @@ def group_items(items):
 def _num_ops(num, x):
     return [f"10.5 HB ({esc(num)}) {x:.1f} 0 L"]
 
+def display_name(e):
+    """What the product row prints. The SKU leads because it is what the
+    picker reads to find the bin."""
+    return f"[{e['sku']}] {e['product']}" if e.get('sku') else e['product']
+
 def build_rows(grouped):
     blocks = []
     for e in grouped:
-        b, ls = [], wrap(e['product'], NAME_W, 8.5, True)
+        b, ls = [], wrap(display_name(e), NAME_W, 8.5, True)
         head = [f"9 HB ({esc(str(e['qty']))}) {X_QTY} 0 L",
                 f"8.5 HB ({esc(ls[0])}) {X_NAME} 0 L",
                 f"9 HB ({esc('$%.2f' % e['subtotal'])}) {X_SUB} 0 R"]
@@ -235,10 +265,11 @@ def build_rows(grouped):
         blocks.append(b)
     return blocks
 
-def slip_ps(ship, grouped, to, frm):
+def slip_ps(ship, grouped, to, frm, brand=None):
     blocks = build_rows(grouped)
     n = sum(e['qty'] for e in grouped); tot = sum(e['subtotal'] for e in grouped)
-    TOP_Y, BOT_Y = H - 116, 74.0
+    d = BAND if brand else 0         # a branded header pushes everything down
+    TOP_Y, BOT_Y = H - 116 - d, 74.0
     pages, cur, y = [], [], TOP_Y
     for b in blocks:
         need = sum(h for h, _ in b) + 3
@@ -266,10 +297,13 @@ def slip_ps(ship, grouped, to, frm):
              "/L { moveto show } def",
              "/R { 3 -1 roll dup stringwidth pop 4 -1 roll exch sub 3 -1 roll moveto show } def"]
         A = s.append
-        A(f"11 HB 0 setgray (Whatnot Packing Slip) {M} {H-26} L")
-        A(f"8 HV ({pi}/{len(pages)}) {W-M} {H-26} R")
-        A(f"0.8 setlinewidth {M} {H-33} moveto {W-M} {H-33} lineto stroke")
-        yy = H - 46
+        if brand:
+            A("0 setgray"); s.extend(brand_ops(brand, pi, len(pages)))
+        else:
+            A(f"11 HB 0 setgray (Whatnot Packing Slip) {M} {H-26} L")
+            A(f"8 HV ({pi}/{len(pages)}) {W-M} {H-26} R")
+        A(f"0.8 setlinewidth {M} {H-33-d} moveto {W-M} {H-33-d} lineto stroke")
+        yy = H - 46 - d
         A(f"8 HB (To:) {M} {yy} L")
         A(f"8 HV ({esc(clean(to[0].replace('To:','')))}) {M+18} {yy} L")
         A(f"8 HB (From:) {W/2} {yy} L")
@@ -277,7 +311,7 @@ def slip_ps(ship, grouped, to, frm):
         yl = yr = yy - 10
         for ln in to[1:6]:  A(f"7.5 HV ({esc(ln)}) {M} {yl} L"); yl -= 9
         for ln in frm[1:6]: A(f"7.5 HV ({esc(ln)}) {W/2} {yr} L"); yr -= 9
-        th = H - 100
+        th = H - 100 - d
         A(f"0.5 setlinewidth {M} {th+8} moveto {W-M} {th+8} lineto stroke")
         A(f"7 HB (QTY) {X_QTY} {th} L  7 HB (Name & Description) {X_NAME} {th} L")
         A(f"7 HB (Subtotal) {X_SUB} {th} R")
@@ -299,6 +333,65 @@ def slip_ps(ship, grouped, to, frm):
         A("showpage")
         out.append("\n".join(s) + "\n")
     return out
+
+# ----------------------------------------------------------------- brand band
+BAND = 19.0                      # how far a branded header pushes the page down
+LOGO_W, LOGO_H = 108.0, 36.0     # 1.5 x 0.5 in
+LOGO_TOP = H - 12
+MSG_SIZE = 9
+MSG_W = W - M - (M + LOGO_W + 8) # 140 pt beside the logo box
+
+def brand_message_lines(brand):
+    """The message as it will print: up to two lines, in the width left over
+    once the logo box is (or isn't) taken."""
+    msg = renderable(brand.message)
+    if not msg:
+        return []
+    taken = brand.logo is not None or renderable(brand.shop_name)
+    return wrap(msg, MSG_W if taken else W - 2 * M, MSG_SIZE)[:2]
+
+def brand_ops(brand, pi, npages):
+    """Logo (or shop name) on the left, the message beside it, and
+    'Packing Slip n/m' in the corner -- load() and verify() find slip pages
+    by those words, so they stay on every page."""
+    ops = [f"7 HV (Packing Slip {pi}/{npages}) {W-M} {H-20} R"]
+    x = M
+    if brand.logo is not None:
+        w, h = brand.logo.size
+        k = min(0.24, LOGO_W / w, LOGO_H / h)   # 72/300; never outside the box
+        ops.append(f"gsave {M} {LOGO_TOP - h * k:.2f} translate "
+                   f"{w * k:.2f} {h * k:.2f} scale Logo grestore")
+        x = M + LOGO_W + 8
+    elif renderable(brand.shop_name):
+        size = shop_name_size(brand.shop_name) or 8
+        ops.append(f"{size} HB ({esc(renderable(brand.shop_name))}) {M} "
+                   f"{LOGO_TOP - LOGO_H / 2 - size * 0.35:.1f} L")
+        x = M + LOGO_W + 8
+    for k, ln in enumerate(brand_message_lines(brand)):
+        ops.append(f"{MSG_SIZE} HV ({esc(ln)}) {x:.1f} {H - 33 - 11 * k} L")
+    return ops
+
+def logo_prolog(im):
+    """Define the logo once; every slip page draws it with `Logo`. A string
+    DataSource is read from its start on each use, so a 300-page job carries
+    one copy of the logo, not 300."""
+    w, h = im.size
+    data = base64.a85encode(im.tobytes()).decode()
+    return ("/LogoData <~"
+            + "\n".join(data[i:i+120] for i in range(0, len(data), 120))
+            + "~> def\n"
+            f"/Logo {{ /DeviceGray setcolorspace << /ImageType 1 /Width {w} "
+            f"/Height {h} /BitsPerComponent 1 /Decode [0 1] "
+            f"/ImageMatrix [{w} 0 0 -{h} 0 {h}] /DataSource LogoData >> image }} def\n")
+
+def shop_name_size(name):
+    """Largest bold size, 16 down to 8 pt, at which the name fills the logo
+    box; None when even 8 pt is too wide."""
+    name = renderable(name)
+    for size in range(16, 7, -1):
+        if sw(name, size, True) <= LOGO_W:
+            return size
+    return None
 
 # --------------------------------------------------------------------- labels
 LABEL_DPI = 300                        # 4x6 in at 300 dpi == the source rasters
@@ -362,14 +455,16 @@ def label_ps(im):
             + "\ngrestore\nshowpage\n")
 
 # ---------------------------------------------------------------------- build
-def build(src, out, quiet=False, progress=None):
+PS_HEAD = f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"
+
+def build(src, out, quiet=False, progress=None, brand=None):
     raw, data = load(src)
-    ps = [f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"]
+    ps = [PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "")]
     nsl = nlb = 0
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
-            sp = slip_ps(ship, group_items(items), to, frm)
+            sp = slip_ps(ship, group_items(items), to, frm, brand)
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
@@ -391,6 +486,28 @@ def build(src, out, quiet=False, progress=None):
     finally:
         os.unlink(psfile)
     return len(data), nsl, nlb
+
+def preview_png(brand, png):
+    """One sample slip through the real renderer, at a thermal head's 203 dpi
+    in pure black and white -- what the Branding tab shows is what prints."""
+    ship = dict(svc='USPS Ground Advantage', dims='12 x 12 x 12 in',
+                track='9300120762602517212464', weight='7.0 oz')
+    items = [dict(qty=1, name='ROSEY BALL #2', order='1', price=2.0, sku='A-T-63'),
+             dict(qty=1, name='ROSEY BALL #3', order='2', price=3.0, sku='A-T-63'),
+             dict(qty=1, name='CRUNCHY LOBSTER #1', order='3', price=3.0, sku='TB200-477')]
+    to = ['To: buyer123', 'Jane Buyer', '1 Main St', 'Springfield, IL 62701']
+    frm = ['From: ' + (renderable(brand.shop_name) or 'your shop'),
+           '2 Shop Rd', 'Townsville, CA 90001']
+    ps = PS_HEAD + (logo_prolog(brand.logo) if brand.logo is not None else "") \
+         + slip_ps(ship, group_items(items), to, frm, brand)[0]
+    with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
+        f.write(ps); psfile = f.name
+    try:
+        _spawn([_bin('gs'), '-q', '-dBATCH', '-dNOPAUSE', '-sDEVICE=pngmono',
+                '-r203', '-dFIXEDMEDIA', f'-dDEVICEWIDTHPOINTS={W}',
+                f'-dDEVICEHEIGHTPOINTS={H}', f'-sOutputFile={png}', psfile])
+    finally:
+        os.unlink(psfile)
 
 # --------------------------------------------------------------------- verify
 class Audit:
@@ -421,6 +538,90 @@ class Audit:
         print(self.text(title))
         return not self.fail
 
+# The auditor's own view of SKUs. Not RE_SKU: the parser once glued SKU text
+# onto names and an audit that parsed the same way passed it. The two strict
+# regexes agree on what a SKU looks like, so a shape neither reads (say
+# 'SKU AB 12') passes both; RE_SKU_WORD, a deliberately loose count of every
+# SKU token, is what catches it.
+RE_SKU_WORD = re.compile(r'\bSKU\b')
+RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
+RE_SRC_ORDER = re.compile(r'\bOrder (\d+)\b')
+# The qty is optional: pdftotext sometimes lifts a lone '#N' above its row and
+# leaves the '[SKU] name' text on a line of its own.
+RE_OUT_SKU = re.compile(r'^\s*(?:\d+\s+)?\[([^\]\s]+)\]', re.M)
+
+def audit_skus(a, tag, src_text, sitems, grouped, out_text):
+    """A wrong SKU sends the picker to the wrong bin, so it is held to the same
+    standard as a wrong #N."""
+    raw = sorted(m.group(1) for ln in src_text.split('\n')
+                 if (m := RE_SRC_SKU.search(ln)))
+    parsed = sorted(it['sku'] for it in sitems if it.get('sku'))
+    a.ok(len(RE_SKU_WORD.findall(src_text)) == len(parsed), f'{tag} SKUs counted',
+         f'{len(RE_SKU_WORD.findall(src_text))} SKU tokens vs {len(parsed)} parsed')
+    a.ok(raw == parsed, f'{tag} SKUs parsed', f'{parsed} vs source {raw}')
+    # which item a SKU belongs to, from the raw lines: a SKU line sits under
+    # its item's "Order N". The checks above and below compare codes, so a
+    # parse that hands a SKU to the wrong item would pass them all.
+    owner, order = {}, None
+    for ln in src_text.split('\n'):
+        if (m := RE_SRC_ORDER.search(ln)): order = m.group(1)
+        if (m := RE_SRC_SKU.search(ln)): owner[order] = m.group(1)
+    mine = {it['order']: it['sku'] for it in sitems if it.get('sku')}
+    bad = sorted((o for o in set(owner) | set(mine) if owner.get(o) != mine.get(o)), key=str)
+    a.ok(not bad, f'{tag} SKU belongs to its order',
+         f'order {bad[0]}: {mine.get(bad[0])} vs source {owner.get(bad[0])}' if bad else '')
+    shown = set(RE_OUT_SKU.findall(out_text))
+    a.ok(shown == set(raw), f'{tag} SKUs on slip',
+         f'{sorted(shown)} vs source {sorted(set(raw))}')
+    flat = renderable(out_text)
+    for e in grouped:
+        if e.get('sku'):
+            first = renderable(e['product']).split(' ')[0]
+            # a SKU too wide to share line 1 with the first word wraps alone,
+            # and pdftotext reads the row's subtotal in between
+            pair = re.escape(f"[{e['sku']}]") + r'(?: \$[\d,]+\.\d\d)? ' + re.escape(first)
+            a.ok(re.search(pair, flat) is not None, f'{tag} SKU pairing',
+                 f"{e['sku']} {e['product'][:30]!r}")
+    a.ok('SKU ' not in out_text, f'{tag} no SKU text on slip')
+
+def audit_brand(a, brand, slip_texts):
+    """The message is cosmetic but promised on every page; checked line by
+    line because a two-line message lands on two text lines. It reuses the
+    renderer's wrap on purpose (an exception to the independence rule): the
+    message is cosmetic, so a bug the two share can at worst pass a badly
+    wrapped thank-you line."""
+    if brand is None:
+        return
+    lines = brand_message_lines(brand)
+    if not lines:
+        return
+    for i, t in enumerate(slip_texts, 1):
+        flat = renderable(t)
+        a.ok(all(ln in flat for ln in lines), f'slip page {i} brand message',
+             lines[0][:40])
+
+def audit_units(a, tag, grouped, opage):
+    """Every unit: # present, price present, nothing invented. -> the units."""
+    # a SKU is free seller text: '[AB#2]' must not pass for a missing '#2'
+    bare = re.sub(r'\[[^\]\s]+\]', '', opage)
+    units = []
+    for e in grouped:
+        for seg in wrap(display_name(e), NAME_W, 8.5, True):
+            seg = renderable(seg)
+            a.ok(seg and seg in renderable(opage), f'{tag} product',
+                 f'{e["product"][:34]!r} segment {seg[:34]!r}')
+        for v in e['variants']:
+            units.append(v)
+            if v['variant']:
+                a.ok(re.search(re.escape(v['variant']) + r'(?!\d)', bare) is not None,
+                     f'{tag} variant', f'{e["product"]} {v["variant"]}')
+            else:
+                a.ok('no #' in bare, f'{tag} unnumbered marker', e['product'])
+            if len(e['variants']) > 1:
+                a.ok('$%.2f' % v['price'] in bare, f'{tag} unit price',
+                     f'{v["variant"]} ${v["price"]:.2f}')
+    return units
+
 def kinds_detail(kinds):
     """Point at where the slip/label pattern first breaks. Truncating the head
     just prints a screenful of correct 'SBSB...' and hides the one page that
@@ -431,7 +632,7 @@ def kinds_detail(kinds):
     return (f'page {i+1} unexpected {kinds[i]!r}: '
             f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
 
-def verify(src, out, deep=False, progress=None):
+def verify(src, out, deep=False, progress=None, brand=None):
     a = Audit()
     raw_s, src_ships = load(src)
     raw_o, out_ships = load(out)
@@ -465,7 +666,7 @@ def verify(src, out, deep=False, progress=None):
         opages = out_ships[k][0] if k < len(out_ships) else []
         if not a.ok(bool(opages), f'{tag} slip present'):
             continue
-        opage = '\n'.join(out_pages[n - 1] for n in opages)
+        opage = '\n'.join(slip_body(out_pages[n - 1]) for n in opages)
 
         # every word of the source To:/From: header must reach the slip. This
         # deliberately ignores columns and lines, so it does not share
@@ -506,22 +707,13 @@ def verify(src, out, deep=False, progress=None):
                  f'{tag} total matches source footer',
                  f'{sship["stated"][1]} vs {t:.2f}')
 
-        # every unit: # present, price present, nothing invented
-        for e in gr:
-            for seg in wrap(e['product'], NAME_W, 8.5, True):
-                seg = renderable(seg)
-                a.ok(seg and seg in renderable(opage), f'{tag} product',
-                     f'{e["product"][:34]!r} segment {seg[:34]!r}')
-            for v in e['variants']:
-                out_orders[v['order']] = True
-                if v['variant']:
-                    a.ok(re.search(re.escape(v['variant']) + r'(?!\d)', opage) is not None,
-                         f'{tag} variant', f'{e["product"]} {v["variant"]}')
-                else:
-                    a.ok('no #' in opage, f'{tag} unnumbered marker', e['product'])
-                if len(e['variants']) > 1:
-                    a.ok('$%.2f' % v['price'] in opage, f'{tag} unit price',
-                         f'{v["variant"]} ${v["price"]:.2f}')
+        for v in audit_units(a, tag, gr, opage):
+            out_orders[v['order']] = True
+
+        stext = '\n'.join(raw_s[n - 1] for n in spages)
+        audit_skus(a, tag, stext, sitems, gr, opage)
+
+    audit_brand(a, brand, [p for p in out_pages if 'Packing Slip' in p])
 
     # ---- no order lost or invented
     a.ok(set(out_orders) == set(src_orders), 'order id set identical',
@@ -533,7 +725,7 @@ def verify(src, out, deep=False, progress=None):
         return round(sum(sum(i['price'] for i in items) for _, _, items in ships), 2)
     src_total = money(src_ships)
     found = [m for p in out_pages if 'Packing Slip' in p
-             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', p)] if m]
+             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', slip_body(p))] if m]
     a.ok(len(found) == len(src_ships), 'one total line per shipment',
          f'{len(found)} found vs {len(src_ships)} shipments')
     out_total = round(sum(float(m.group(1).replace(',', '')) for m in found), 2)
@@ -582,9 +774,15 @@ def main():
     b.add_argument('src'); b.add_argument('-o', '--out', required=True)
     b.add_argument('--deep', action='store_true', help='pixel-check every label')
     b.add_argument('--no-verify', action='store_true')
+    b.add_argument('--no-brand', action='store_true',
+                   help='plain header, ignoring the saved branding')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
+    v.add_argument('--no-brand', action='store_true',
+                   help='skip the brand message check; otherwise verify expects '
+                        'the currently saved message, so pass this to re-check '
+                        'an output built without branding')
     args = ap.parse_args()
 
     try:
@@ -594,15 +792,19 @@ def main():
         return 1
 
 def _run(args):
+    brand = None
+    if not args.no_brand:
+        import branding            # lazily: branding imports this module
+        brand = branding.active()
+        for note in (brand.notes if brand else []):
+            print(f"branding: {note}")
     if args.cmd == 'build':
-        n, nsl, nlb = build(args.src, args.out)
+        n, nsl, nlb = build(args.src, args.out, brand=brand)
         size = os.path.getsize(args.out)
         print(f"built {args.out}: {n} shipments, {nsl} slip pages, {nlb} labels, "
               f"{size/1e6:.2f} MB")
         if args.no_verify: return 0
-        a = verify(args.src, args.out, deep=args.deep)
-    else:
-        a = verify(args.src, args.out, deep=args.deep)
+    a = verify(args.src, args.out, deep=args.deep, brand=brand)
     return 0 if a.report('AUDIT') else 1
 
 if __name__ == '__main__':

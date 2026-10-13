@@ -30,10 +30,11 @@ class Result:
     message: str
 
 class Job:
-    def __init__(self, src, dest, deep=True):
+    def __init__(self, src, dest, deep=True, brand=None):
         self.src = pathlib.Path(src)
         self.dest = pathlib.Path(dest)
         self.deep = deep
+        self.brand = brand
 
     def run(self, emit):
         lines = [f"=== {self.src.name} -> {self.dest.name}"]
@@ -45,10 +46,15 @@ class Job:
         def progress(done, total, stage):
             emit({"kind": "progress", "done": done, "total": total, "stage": stage})
 
+        for note in (self.brand.notes if self.brand else []):
+            log(f"branding: {note}")
+
         try:
-            n, nsl, nlb = ws.build(str(self.src), str(self.dest), quiet=True, progress=progress)
+            n, nsl, nlb = ws.build(str(self.src), str(self.dest), quiet=True,
+                                   progress=progress, brand=self.brand)
             log(f"built {self.dest.name}: {n} shipments, {nsl} slip pages, {nlb} labels")
-            audit = ws.verify(str(self.src), str(self.dest), deep=self.deep, progress=progress)
+            audit = ws.verify(str(self.src), str(self.dest), deep=self.deep,
+                              progress=progress, brand=self.brand)
             report = audit.text("AUDIT")
             for line in report.splitlines():
                 log(line)

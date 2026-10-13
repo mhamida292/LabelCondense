@@ -20,6 +20,8 @@ Then: drag a Whatnot export onto the icon, or open the app and click
 **Choose file…**. Pick where to save, wait about 90 seconds while the progress
 bar runs, and print.
 
+To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them.
+
 **If it says `DO NOT PRINT`, don't print it.** Nothing was saved. Open the
 **Logs** tab, click **Save report…**, and send that file over.
 
@@ -151,6 +153,19 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   overflow and it failed the audit with 19 cascading errors on a correctly built
   PDF. The auditor now takes its page grouping from `load()`, which groups
   consecutive slip pages into a shipment. Don't reintroduce stride-2 arithmetic.
+
+- **SKUs come off the line before it joins the name.** Whatnot prints a
+  listing's SKU in the Attributes column on the line after `Order N`. The
+  parser used to append that line to the name and cut at `#N` — which works
+  until a long name wraps and puts `#N` *after* the SKU: Oct 13 printed
+  `JUMBO CRUNCHY STRAWBERRY DUCK SKU ZW-112B #1`, and the audit, parsing the
+  same way, passed it. `audit_skus()` now reads SKUs from raw text with its own
+  regexes and fails on any mismatch, any SKU on the wrong product, or any
+  `SKU ` left in the output.
+- **Branding off is byte-identical.** `slip_ps(..., brand=None)` must produce
+  exactly the old header; `tests/test_slip_golden.py` pins it. The band keeps
+  the words `Packing Slip` on every page because that is how `load()` finds
+  slip pages.
 
 ### Known limitations
 

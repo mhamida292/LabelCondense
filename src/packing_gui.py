@@ -1,10 +1,14 @@
-"""The window. One state at a time, two tabs, nothing else."""
-import datetime as dt, os, pathlib, queue, sys, threading, tkinter as tk
+"""The window. One state at a time, three tabs, nothing else."""
+import base64, datetime as dt, io, os, pathlib, queue, subprocess, sys, tempfile, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+from PIL import Image
+
+import branding
 import job as jobmod
 import logstore
 import platform_bits
+import whatnot_slips as ws
 
 STATES = ("idle", "working", "done", "failed")
 
@@ -27,10 +31,13 @@ class App:
         self.run_btn = ttk.Button(bar, text="Run", command=lambda: self.tab("run"))
         self.logs_btn = ttk.Button(bar, text="Logs", command=lambda: self.tab("logs"))
         self.run_btn.pack(side="left"); self.logs_btn.pack(side="left")
+        self.brand_btn = ttk.Button(bar, text="Branding", command=lambda: self.tab("branding"))
+        self.brand_btn.pack(side="left")
 
         self.panes = {
             "run": ttk.Frame(root),
             "logs": ttk.Frame(root),
+            "branding": ttk.Frame(root),
         }
         self.frames = {name: ttk.Frame(self.panes["run"]) for name in STATES}
         self._build_idle(self.frames["idle"])
@@ -38,6 +45,7 @@ class App:
         self._build_done(self.frames["done"])
         self._build_failed(self.frames["failed"])
 
+        self._build_branding(self.panes["branding"])
         self.panes["run"].pack(fill="both", expand=True)
         self.show("idle")
 
@@ -60,6 +68,8 @@ class App:
         for f in self.frames.values():
             f.pack_forget()
         self.frames[name].pack(fill="both", expand=True, padx=24, pady=20)
+        if hasattr(self, "brand_widgets"):
+            self._lock_branding(name == "working")
 
     def mark_failure(self):
         self.badge_visible = True
@@ -126,6 +136,141 @@ class App:
         except OSError:
             messagebox.showerror(
                 "Can't save there", f"The report could not be saved to {target}.")
+
+    # ------------------------------------------------------------ branding
+    def _build_branding(self, pane):
+        saved = branding.load()
+        self.form_logo = saved.logo
+        f = ttk.Frame(pane); f.pack(fill="both", expand=True, padx=16, pady=12)
+        f.columnconfigure(1, weight=1)
+
+        self.brand_on = tk.BooleanVar(value=saved.enabled)
+        on = ttk.Checkbutton(f, text="Show branding on slips", variable=self.brand_on)
+        on.grid(row=0, column=0, columnspan=3, sticky="w")
+
+        ttk.Label(f, text="Shop name").grid(row=1, column=0, sticky="w", pady=(10, 0))
+        self.shop_name = tk.StringVar(value=saved.shop_name)
+        name = ttk.Entry(f, textvariable=self.shop_name)
+        name.grid(row=1, column=1, columnspan=2, sticky="we", pady=(10, 0))
+
+        ttk.Label(f, text="Logo").grid(row=2, column=0, sticky="nw", pady=(10, 0))
+        self.logo_view = ttk.Label(f, text="(none — the shop name is shown)")
+        self.logo_view.grid(row=2, column=1, sticky="w", pady=(10, 0))
+        btns = ttk.Frame(f); btns.grid(row=2, column=2, sticky="ne", pady=(10, 0))
+        choose = ttk.Button(btns, text="Choose…", command=self.choose_logo)
+        remove = ttk.Button(btns, text="Remove", command=self.remove_logo)
+        choose.pack(fill="x"); remove.pack(fill="x", pady=(4, 0))
+
+        ttk.Label(f, text="Message").grid(row=3, column=0, sticky="nw", pady=(10, 0))
+        self.message_box = tk.Text(f, height=2, width=30, wrap="word")
+        self.message_box.insert("1.0", saved.message)
+        self.message_box.grid(row=3, column=1, columnspan=2, sticky="we", pady=(10, 0))
+
+        foot = ttk.Frame(f); foot.grid(row=4, column=0, columnspan=3, sticky="we", pady=(14, 0))
+        preview = ttk.Button(foot, text="Preview slip", command=self.preview_slip)
+        preview.pack(side="left")
+        self.brand_save_btn = ttk.Button(foot, text="Save", command=self.save_branding)
+        self.brand_save_btn.pack(side="right")
+        self.brand_status = tk.StringVar(value="")
+        ttk.Label(foot, textvariable=self.brand_status,
+                  foreground="#6a6d73").pack(side="right", padx=8)
+
+        self.brand_widgets = [on, name, choose, remove, preview, self.brand_save_btn]
+        self._show_logo()
+        # a field load() had to drop would otherwise just look blank
+        if saved.notes:
+            self.brand_status.set("Note: " + "; ".join(saved.notes))
+
+        unsaved = lambda *_: self.brand_status.set("Not saved yet")
+        self.brand_on.trace_add("write", unsaved)
+        self.shop_name.trace_add("write", unsaved)
+        self.message_box.edit_modified(False)
+        self.message_box.bind("<<Modified>>", self._message_edited)
+
+    def _message_edited(self, _event):
+        # Tk raises <<Modified>> only when the flag flips, so clear it each time
+        if self.message_box.edit_modified():
+            self.brand_status.set("Not saved yet")
+            self.message_box.edit_modified(False)
+
+    def _lock_branding(self, locked):
+        """Settings are read once when a run starts; editing mid-run would
+        look like it applied when it didn't."""
+        for w in self.brand_widgets:
+            w.state(["disabled"] if locked else ["!disabled"])
+        self.message_box.configure(state="disabled" if locked else "normal")
+
+    def _show_logo(self):
+        if self.form_logo is None:
+            self.logo_photo = None
+            self.logo_view.configure(image="", text="(none — the shop name is shown)")
+            return
+        im = self.form_logo.resize((self.form_logo.width // 2,
+                                    max(1, self.form_logo.height // 2)), Image.NEAREST)
+        buf = io.BytesIO(); im.save(buf, "PNG")
+        self.logo_photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+        self.logo_view.configure(image=self.logo_photo, text="")
+
+    def form_brand(self):
+        return branding.Brand(enabled=self.brand_on.get(),
+                              shop_name=self.shop_name.get().strip(),
+                              message=self.message_box.get("1.0", "end-1c").strip(),
+                              logo=self.form_logo)
+
+    def choose_logo(self, path=None):
+        if path is None:
+            path = filedialog.askopenfilename(
+                title="Choose your logo",
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
+                           ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            self.form_logo = branding.import_logo(path)
+        # not just OSError/ValueError: Pillow also raises DecompressionBombError,
+        # MemoryError and others, and any of them would surface as a traceback
+        except Exception as exc:
+            messagebox.showerror("Can't use that image", str(exc))
+            return
+        self.brand_status.set("Not saved yet")
+        self._show_logo()
+
+    def remove_logo(self):
+        self.form_logo = None
+        self.brand_status.set("Not saved yet")
+        self._show_logo()
+
+    def save_branding(self):
+        b = self.form_brand()
+        errs = branding.problems(b)
+        if errs:
+            messagebox.showerror("Can't save", "\n".join(errs))
+            return False
+        try:
+            branding.save(b)
+        except OSError as exc:
+            messagebox.showerror("Can't save", f"The settings could not be saved: {exc}")
+            return False
+        self.brand_status.set("Saved")
+        return True
+
+    def preview_slip(self):
+        b = self.form_brand()
+        errs = branding.problems(b)
+        if errs:
+            messagebox.showerror("Can't preview", "\n".join(errs))
+            return
+        with tempfile.TemporaryDirectory() as td:
+            png = pathlib.Path(td) / "preview.png"
+            try:
+                ws.preview_png(b, png)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                messagebox.showerror("Can't preview", f"The preview could not be drawn: {exc}")
+                return
+            photo = tk.PhotoImage(file=str(png)).subsample(2)
+        win = tk.Toplevel(self.root); win.title("Slip preview")
+        lbl = ttk.Label(win, image=photo); lbl.image = photo
+        lbl.pack(padx=8, pady=8)
 
     # ---------------------------------------------------------------- idle
     def _build_idle(self, f):
@@ -216,7 +361,7 @@ class App:
         self.log_lines = []
         self.dest = dest
         self.show("working")
-        job = jobmod.Job(self.src, dest)
+        job = jobmod.Job(self.src, dest, brand=branding.active())
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 
