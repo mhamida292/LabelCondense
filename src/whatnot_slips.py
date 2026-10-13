@@ -178,6 +178,16 @@ def header_region(pagetext):
         out.append(ln)
     return out or []
 
+def slip_body(pagetext):
+    """The page from the To:/From: line down. A branded band above it holds
+    the user's free text, which the audit must not read as slip facts (a
+    message saying '#1' or 'SKU ' would otherwise pass or fail checks)."""
+    lines = pagetext.split('\n')
+    for i, ln in enumerate(lines):
+        if 'To:' in ln and 'From:' in ln:
+            return '\n'.join(lines[i:])
+    return pagetext
+
 def header_lines(pagetext, side):
     region = header_region(pagetext)
     if not region: return []
@@ -346,8 +356,9 @@ def brand_ops(brand, pi, npages):
     x = M
     if brand.logo is not None:
         w, h = brand.logo.size
-        ops.append(f"gsave {M} {LOGO_TOP - h * 0.24:.2f} translate "
-                   f"{w * 0.24:.2f} {h * 0.24:.2f} scale Logo grestore")  # 72/300
+        k = min(0.24, LOGO_W / w, LOGO_H / h)   # 72/300; never outside the box
+        ops.append(f"gsave {M} {LOGO_TOP - h * k:.2f} translate "
+                   f"{w * k:.2f} {h * k:.2f} scale Logo grestore")
         x = M + LOGO_W + 8
     elif renderable(brand.shop_name):
         size = shop_name_size(brand.shop_name) or 8
@@ -532,7 +543,9 @@ class Audit:
 # SKU token, is what catches it.
 RE_SKU_WORD = re.compile(r'\bSKU\b')
 RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
-RE_OUT_SKU = re.compile(r'^\s*\d+\s+\[([^\]\s]+)\]', re.M)
+# The qty is optional: pdftotext sometimes lifts a lone '#N' above its row and
+# leaves the '[SKU] name' text on a line of its own.
+RE_OUT_SKU = re.compile(r'^\s*(?:\d+\s+)?\[([^\]\s]+)\]', re.M)
 
 def audit_skus(a, tag, src_text, sitems, grouped, out_text):
     """A wrong SKU sends the picker to the wrong bin, so it is held to the same
@@ -611,7 +624,7 @@ def verify(src, out, deep=False, progress=None, brand=None):
         opages = out_ships[k][0] if k < len(out_ships) else []
         if not a.ok(bool(opages), f'{tag} slip present'):
             continue
-        opage = '\n'.join(out_pages[n - 1] for n in opages)
+        opage = '\n'.join(slip_body(out_pages[n - 1]) for n in opages)
 
         # every word of the source To:/From: header must reach the slip. This
         # deliberately ignores columns and lines, so it does not share
@@ -684,7 +697,7 @@ def verify(src, out, deep=False, progress=None, brand=None):
         return round(sum(sum(i['price'] for i in items) for _, _, items in ships), 2)
     src_total = money(src_ships)
     found = [m for p in out_pages if 'Packing Slip' in p
-             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', p)] if m]
+             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', slip_body(p))] if m]
     a.ok(len(found) == len(src_ships), 'one total line per shipment',
          f'{len(found)} found vs {len(src_ships)} shipments')
     out_total = round(sum(float(m.group(1).replace(',', '')) for m in found), 2)

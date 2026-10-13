@@ -95,3 +95,26 @@ def test_preview_png_renders_one_slip(tmp_path):
     ws.preview_png(brand(shop_name="Squish Co", logo=solid_logo()), out)
     im = Image.open(out)
     assert im.size == (812, 1218)              # 4 x 6 in at 203 dpi
+
+
+def test_oversized_logo_is_scaled_into_its_box():
+    import re
+    op = ws.brand_ops(brand(logo=solid_logo(900, 300)), 1, 1)[1]
+    w, h = map(float, re.search(r"translate ([\d.]+) ([\d.]+) scale", op).groups())
+    assert w <= ws.LOGO_W and h <= ws.LOGO_H
+
+def test_slip_body_drops_the_band_and_keeps_the_body():
+    page = "Squish Co  Packing Slip 1/1\nYou're our #7!\nTo: x   From: y\nROSEY #1\n"
+    body = ws.slip_body(page)
+    assert "#7" not in body and "ROSEY #1" in body and body.startswith("To:")
+    plain = "no anchor #7"
+    assert ws.slip_body(plain) == plain
+
+def test_branded_build_passes_the_audit_with_a_hostile_message(sku_pdf):
+    b = branding.Brand(enabled=True, shop_name="Squish Co",
+                       message="You're our #1! SKU 3 Items $20.00")
+    with tempfile.TemporaryDirectory() as td:
+        out = pathlib.Path(td) / "out.pdf"
+        ws.build(str(sku_pdf), str(out), quiet=True, brand=b)
+        audit = ws.verify(str(sku_pdf), str(out), deep=False, brand=b)
+    assert audit.fail == []
