@@ -58,12 +58,21 @@ def problems(b):
     return out
 
 def load():
+    """Never raises: it runs at app start and at the start of every run."""
     b = Brand()
     try:
         raw = json.loads(_settings_path().read_text(encoding="utf-8"))
-        b.enabled = bool(raw.get("brand_enabled", False))
-        b.shop_name = str(raw.get("shop_name", ""))
-        b.message = str(raw.get("message", DEFAULT_MESSAGE))
+        if not isinstance(raw, dict):
+            raise ValueError("not a settings object")
+        for key, attr, kind in (("brand_enabled", "enabled", bool),
+                                ("shop_name", "shop_name", str),
+                                ("message", "message", str)):
+            if key not in raw:
+                continue
+            if isinstance(raw[key], kind):
+                setattr(b, attr, raw[key])
+            else:
+                b.notes.append(f"branding {key} has the wrong type; using the default")
     except FileNotFoundError:
         pass
     except (OSError, ValueError, AttributeError) as exc:
@@ -78,12 +87,13 @@ def load():
         if _has_anchor(getattr(b, attr)):
             b.notes.append(f'branding {what} contains "To:" or "From:"; not printed')
             setattr(b, attr, "")
-    if _logo_path().exists():
-        try:
-            with Image.open(_logo_path()) as im:
+    try:
+        path = _logo_path()
+        if path.exists():
+            with Image.open(path) as im:
                 b.logo = im.convert("1")
-        except (OSError, ValueError) as exc:
-            b.notes.append(f"logo unreadable ({exc}); showing the shop name instead")
+    except Exception as exc:    # a stored logo must never stop a run
+        b.notes.append(f"logo unreadable ({exc}); showing the shop name instead")
     return b
 
 def active():

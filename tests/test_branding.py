@@ -1,4 +1,4 @@
-import json, os
+import json
 import pytest
 from PIL import Image
 
@@ -140,3 +140,29 @@ def test_hand_edited_anchor_words_are_dropped_with_a_note():
         {"brand_enabled": True, "shop_name": "From: Me", "message": "To: x"}))
     b = branding.load()
     assert b.shop_name == "" and b.message == "" and len(b.notes) == 2
+
+# --- load() never raises ---------------------------------------------------
+
+def test_load_survives_an_uncreatable_settings_dir(monkeypatch):
+    def boom(): raise PermissionError("denied")
+    monkeypatch.setattr(branding, "settings_dir", boom)
+    b = branding.load()
+    assert (b.enabled, b.shop_name, b.logo) == (False, "", None)
+    assert any("denied" in n for n in b.notes)
+
+def test_a_null_shop_name_falls_back_with_a_note():
+    (sdir() / "settings.json").write_text('{"shop_name": null}')
+    b = branding.load()
+    assert b.shop_name == "" and b.notes
+
+def test_a_string_brand_enabled_is_not_coerced():
+    (sdir() / "settings.json").write_text('{"brand_enabled": "false"}')
+    b = branding.load()
+    assert b.enabled is False and b.notes
+
+def test_a_decompression_bomb_logo_becomes_a_note(monkeypatch):
+    Image.new("1", (10, 10)).save(sdir() / "logo.png")
+    def boom(*a, **k): raise Image.DecompressionBombError("too big")
+    monkeypatch.setattr(branding.Image, "open", boom)
+    b = branding.load()
+    assert b.logo is None and any("logo unreadable" in n for n in b.notes)
