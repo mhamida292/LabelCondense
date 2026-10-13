@@ -440,7 +440,11 @@ class Audit:
         return not self.fail
 
 # The auditor's own view of SKUs. Not RE_SKU: the parser once glued SKU text
-# onto names and an audit that parsed the same way passed it.
+# onto names and an audit that parsed the same way passed it. The two strict
+# regexes agree on what a SKU looks like, so a shape neither reads (say
+# 'SKU AB 12') passes both; RE_SKU_WORD, a deliberately loose count of every
+# SKU token, is what catches it.
+RE_SKU_WORD = re.compile(r'\bSKU\b')
 RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
 RE_OUT_SKU = re.compile(r'^\s*\d+\s+\[([^\]\s]+)\]', re.M)
 
@@ -450,6 +454,8 @@ def audit_skus(a, tag, src_text, sitems, grouped, out_text):
     raw = sorted(m.group(1) for ln in src_text.split('\n')
                  if (m := RE_SRC_SKU.search(ln)))
     parsed = sorted(it['sku'] for it in sitems if it.get('sku'))
+    a.ok(len(RE_SKU_WORD.findall(src_text)) == len(parsed), f'{tag} SKUs counted',
+         f'{len(RE_SKU_WORD.findall(src_text))} SKU tokens vs {len(parsed)} parsed')
     a.ok(raw == parsed, f'{tag} SKUs parsed', f'{parsed} vs source {raw}')
     shown = set(RE_OUT_SKU.findall(out_text))
     a.ok(shown == set(raw), f'{tag} SKUs on slip',

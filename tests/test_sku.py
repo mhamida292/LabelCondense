@@ -156,3 +156,8 @@ def test_description_ending_in_sku_text_fails_safe():
                       "     #1                         SKU TB200-477\n"
                       "     ASK ABOUT                  SKU LOOKUP\n")
     assert "s0 SKUs parsed" in labels(run_audit(src=src))
+
+def test_a_sku_shape_the_parser_cannot_read_fails():
+    """'SKU AB 12' matches neither strict regex; only the loose word count sees it."""
+    src = SRC.replace("SKU TB200-477", "SKU AB 12")
+    assert "s0 SKUs counted" in labels(run_audit(src=src))
