@@ -318,6 +318,22 @@ def slip_ps(ship, grouped, to, frm):
         out.append("\n".join(s) + "\n")
     return out
 
+# ----------------------------------------------------------------- brand band
+BAND = 19.0                      # how far a branded header pushes the page down
+LOGO_W, LOGO_H = 108.0, 36.0     # 1.5 x 0.5 in
+LOGO_TOP = H - 12
+MSG_SIZE = 9
+MSG_W = W - M - (M + LOGO_W + 8) # 140 pt beside the logo box
+
+def shop_name_size(name):
+    """Largest bold size, 16 down to 8 pt, at which the name fills the logo
+    box; None when even 8 pt is too wide."""
+    name = renderable(name)
+    for size in range(16, 7, -1):
+        if sw(name, size, True) <= LOGO_W:
+            return size
+    return None
+
 # --------------------------------------------------------------------- labels
 LABEL_DPI = 300                        # 4x6 in at 300 dpi == the source rasters
 

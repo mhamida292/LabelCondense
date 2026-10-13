@@ -20,16 +20,17 @@ def _adopt_legacy(base, old, new):
         (base / old).rename(base / new)
     return base / new
 
+def data_dir():
+    """The app's own per-user folder. Logs and branding settings live in it."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or (pathlib.Path.home() / "AppData/Local")
+        return _adopt_legacy(pathlib.Path(base), "PackingSlips", APP)
+    base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
+    return _adopt_legacy(pathlib.Path(base), "packing-slips", "label-condense")
+
 def log_dir():
     override = os.environ.get("PACKING_LOG_DIR")
-    if override:
-        d = pathlib.Path(override)
-    elif os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or (pathlib.Path.home() / "AppData/Local")
-        d = _adopt_legacy(pathlib.Path(base), "PackingSlips", APP) / "logs"
-    else:
-        base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
-        d = _adopt_legacy(pathlib.Path(base), "packing-slips", "label-condense") / "logs"
+    d = pathlib.Path(override) if override else data_dir() / "logs"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
