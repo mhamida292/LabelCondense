@@ -25,6 +25,14 @@ def settings_in_tmp(tmp_path, monkeypatch):
     """No test may read or write the real user's branding settings."""
     monkeypatch.setenv("LABEL_CONDENSE_SETTINGS_DIR", str(tmp_path / "settings"))
 
+@pytest.fixture(autouse=True)
+def no_desktop_pickers(tmp_path, monkeypatch):
+    """Tests never open kdialog/zenity, and never see the real Downloads."""
+    import dialogs, recent
+    monkeypatch.setattr(dialogs, "_native_tool", lambda: None)
+    (tmp_path / "Downloads").mkdir(exist_ok=True)
+    monkeypatch.setattr(recent, "downloads", lambda: tmp_path / "Downloads")
+
 @pytest.fixture(scope="session", autouse=True)
 def windows_binaries(tmp_path_factory):
     """Unfrozen, _bin() returns bare names ('gs', 'pdftotext') and relies on

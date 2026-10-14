@@ -184,3 +184,22 @@ def test_closing_with_no_run_in_progress_does_not_ask(app, monkeypatch):
     assert called == []
     with pytest.raises(tk.TclError):
         app.root.winfo_exists()
+
+def test_newest_export_is_one_click(app, monkeypatch, tmp_path):
+    import packing_gui, recent
+    f = recent.downloads() / "Whatnot-Combined-Labels-Packing-Slips-abc-1.pdf"
+    f.write_bytes(b"%PDF")
+    app.show("idle")
+    assert app.recent_btn.winfo_manager() and "Whatnot-Combined" in app.recent_btn.cget("text")
+    asked = {}
+    def fake_save(**kw):
+        asked.update(kw); return ""            # cancel at the save step
+    monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename", fake_save)
+    app.use_recent()
+    assert app.src == f
+    assert asked["initialdir"] == str(f.parent)    # saves beside the export
+    assert recent.export_dir() == f.parent         # and remembers the folder
+
+def test_no_export_no_shortcut(app):
+    app.show("idle")
+    assert not app.recent_btn.winfo_manager()

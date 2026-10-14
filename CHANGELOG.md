@@ -3,6 +3,20 @@
 Each release's section becomes the "What's new" part of its notes on the
 Releases page. The release build refuses a tag that has no section here.
 
+## v1.6.0
+
+- **One-click exports.** When a Whatnot export has arrived in Downloads in
+  the past week, the Run tab offers it as a button: click it instead of
+  browsing. Renamed files aren't offered; use Choose file… for those.
+- **Better file picker on Linux.** Choose file… opens your desktop's own
+  picker (KDE's or GNOME's) with Places, Recent and search, instead of Tk's
+  plain one.
+- **Opens where your exports are.** The picker starts in Downloads, then in
+  the last folder you used, and the finished PDF is saved beside the export
+  by default.
+- The Run tab no longer says "drop here", since drops only work on the app's
+  icon.
+
 ## v1.5.0
 
 - **New look.** A cleaner, modern window on Windows, Mac and Linux: a header

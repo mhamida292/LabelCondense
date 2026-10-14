@@ -18,13 +18,27 @@ def _data_home():
     base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
     return pathlib.Path(base)
 
+def clean_env():
+    """The environment for launching system programs. A frozen Linux build
+    points LD_LIBRARY_PATH at its own bundled libraries; a desktop tool
+    started with that can load the wrong ones and crash. PyInstaller keeps
+    the user's original value in LD_LIBRARY_PATH_ORIG."""
+    env = dict(os.environ)
+    if getattr(sys, "frozen", False) and "LD_LIBRARY_PATH" in env:
+        orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+        if orig:
+            env["LD_LIBRARY_PATH"] = orig
+        else:
+            del env["LD_LIBRARY_PATH"]
+    return env
+
 def open_for_print(path):
     if _windows():
         os.startfile(str(path), "print")       # noqa: F821 - Windows only
     elif _mac():
         subprocess.Popen(["open", str(path)])
     else:
-        subprocess.Popen(["xdg-open", str(path)])
+        subprocess.Popen(["xdg-open", str(path)], env=clean_env())
 
 def reveal(path):
     d = path if path.is_dir() else path.parent
@@ -33,7 +47,7 @@ def reveal(path):
     elif _mac():
         subprocess.Popen(["open", str(d)])
     else:
-        subprocess.Popen(["xdg-open", str(d)])
+        subprocess.Popen(["xdg-open", str(d)], env=clean_env())
 
 def desktop_entry_path():
     return _data_home() / "applications" / "label-condense.desktop"
@@ -109,7 +123,8 @@ def install_desktop_entry(exe, icon=None):
 def _quiet(argv):
     """A short probe's stdout, or '' if the tool is missing, fails or hangs."""
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=2).stdout
+        return subprocess.run(argv, capture_output=True, text=True, timeout=2,
+                              env=clean_env()).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
 

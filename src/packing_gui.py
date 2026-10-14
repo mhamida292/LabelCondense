@@ -5,9 +5,11 @@ from tkinter import ttk, filedialog, messagebox
 from PIL import Image
 
 import branding
+import dialogs
 import job as jobmod
 import logstore
 import platform_bits
+import recent
 import theme
 import whatnot_slips as ws
 
@@ -85,6 +87,8 @@ class App:
         for f in self.frames.values():
             f.pack_forget()
         self.frames[name].pack(fill="both", expand=True, padx=18, pady=18)
+        if name == "idle":
+            self.refresh_recent()
         if hasattr(self, "brand_widgets"):
             self._lock_branding(name == "working")
 
@@ -151,9 +155,9 @@ class App:
         self._set_log("\n".join(body))
 
     def save_report(self):
-        target = filedialog.asksaveasfilename(
-            title="Save report", initialfile="label-condense-report.txt",
-            defaultextension=".txt", filetypes=[("Text files", "*.txt")])
+        target = dialogs.ask_save(self.root, "Save report", pathlib.Path.home(),
+                                  "label-condense-report.txt",
+                                  [("Text files", "*.txt")], ".txt")
         if not target:
             return
         try:
@@ -249,10 +253,9 @@ class App:
 
     def choose_logo(self, path=None):
         if path is None:
-            path = filedialog.askopenfilename(
-                title="Choose your logo",
-                filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"),
-                           ("All files", "*.*")])
+            path = dialogs.ask_open(
+                self.root, "Choose your logo", pathlib.Path.home(),
+                [("Images", "*.png *.jpg *.jpeg *.gif *.bmp *.webp"), ("All files", "*")])
         if not path:
             return
         try:
@@ -306,21 +309,50 @@ class App:
     def _build_idle(self, f):
         card = ttk.Frame(f, style="Card.TFrame", padding=30)
         card.pack(fill="both", expand=True)
-        ttk.Label(card, text="Drop a Whatnot export here",
-                  font=("TkDefaultFont", 14, "bold")).pack(pady=(20, 6))
+        ttk.Label(card, text="Choose a Whatnot export",
+                  font=("TkDefaultFont", 14, "bold")).pack(pady=(14, 6))
         ttk.Label(card, text="Combined Labels + Packing Slips, straight from Whatnot.",
                   foreground=self.colors["muted"]).pack()
         ttk.Button(card, text="Choose file…", width=16, style="Accent.TButton",
-                   command=self.pick_file).pack(pady=18, ipady=3)
+                   command=self.pick_file).pack(pady=(18, 4), ipady=3)
+        # one click for the export that just landed in Downloads
+        row = ttk.Frame(card); row.pack()
+        self.recent_btn = ttk.Button(row, command=self.use_recent)
+        self.recent_note = ttk.Label(row, foreground=self.colors["muted"])
+        self.recent_path = None
+        ttk.Label(card, text="You can also drop an export on the app's icon.",
+                  foreground=self.colors["muted"]).pack(side="bottom")
+        self.root.bind("<FocusIn>", self._focus_in, add="+")
+
+    def _focus_in(self, event):
+        if event.widget is self.root and self.state == "idle":
+            self.refresh_recent()
+
+    def refresh_recent(self):
+        """Offer the newest Whatnot export, or nothing. The folder is re-read
+        each time the window comes forward, so a fresh download shows up."""
+        found = recent.newest_export()
+        self.recent_path = found[0] if found else None
+        if not found:
+            self.recent_btn.pack_forget(); self.recent_note.pack_forget()
+            return
+        path, when = found
+        self.recent_btn.configure(text=f"Use {recent.short(path.name)}")
+        self.recent_note.configure(text=f"Newest in {path.parent.name} · {recent.age(when)}")
+        self.recent_btn.pack(pady=(10, 2)); self.recent_note.pack()
+
+    def use_recent(self):
+        if self.recent_path is not None:
+            self.pick_file(str(self.recent_path))
 
     def pick_file(self, path=None):
         if path is None:
-            path = filedialog.askopenfilename(
-                title="Choose a Whatnot export",
-                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")])
+            path = dialogs.ask_open(self.root, "Choose a Whatnot export", recent.export_dir(),
+                                    [("PDF files", "*.pdf *.PDF"), ("All files", "*")])
         if not path:
             return
         self.src = pathlib.Path(path)
+        recent.remember_folder(self.src)
         self.start()
 
     # ------------------------------------------------------------- working
@@ -369,11 +401,10 @@ class App:
         """Ask until we get somewhere writable, or the user gives up. Checking
         now costs a second; checking after the build costs ninety."""
         while True:
-            dest = filedialog.asksaveasfilename(
-                title="Save print-ready PDF as…",
-                initialfile=self.default_name(),
-                defaultextension=".pdf",
-                filetypes=[("PDF files", "*.pdf")])
+            # beside the export, which is where the user just was
+            folder = self.src.parent if self.src else recent.export_dir()
+            dest = dialogs.ask_save(self.root, "Save print-ready PDF as…", folder,
+                                    self.default_name(), [("PDF files", "*.pdf")], ".pdf")
             if not dest:
                 return None               # cancelled — costs nothing
             d = pathlib.Path(dest)
