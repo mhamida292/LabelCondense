@@ -44,5 +44,5 @@ def windows_binaries(tmp_path_factory):
         mp.setenv("PATH", os.pathsep.join([str(gs), str(pkg / "bin"),
                                            os.environ.get("PATH", "")]))
         mp.setenv("GS_LIB", os.pathsep.join(
-            str(res / d) for d in ("Resource/Init", "lib", "iccprofiles")))
+            str(res / d) for d in ("Resource/Init", "lib", "iccprofiles", "fonts")))
         yield

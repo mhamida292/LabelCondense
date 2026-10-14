@@ -26,7 +26,9 @@ def stage_gs_resources():
     typically /usr/share/ghostscript/<ver>) so a frozen gs can initialize
     without the host having Ghostscript installed."""
     share = f"{BREW}/share" if sys.platform == "darwin" else "/usr/share"
-    candidates = glob.glob(f"{share}/ghostscript/*/Resource/Init/gs_init.ps")
+    # Homebrew builds --without-versioned-path: no <ver> directory.
+    candidates = (glob.glob(f"{share}/ghostscript/*/Resource/Init/gs_init.ps")
+                  or glob.glob(f"{share}/ghostscript/Resource/Init/gs_init.ps"))
     if not candidates:
         sys.exit(f"missing {share}/ghostscript/*/Resource/Init/gs_init.ps — is ghostscript installed?")
     if len(candidates) > 1:
@@ -39,9 +41,9 @@ def stage_gs_resources():
         shutil.rmtree(GS_RESOURCES)
     shutil.copytree(version_dir / "Resource", GS_RESOURCES / "Resource")
     shutil.copytree(version_dir / "lib", GS_RESOURCES / "lib")
-    icc = version_dir / "iccprofiles"
-    if icc.is_dir():
-        shutil.copytree(icc, GS_RESOURCES / "iccprofiles")
+    for extra in ("iccprofiles", "fonts"):     # fonts: Homebrew's URW set
+        if (version_dir / extra).is_dir():
+            shutil.copytree(version_dir / extra, GS_RESOURCES / extra)
 
 # ------------------------------------------------------------------- macOS
 # Homebrew binaries load their libraries by absolute path (/opt/homebrew/...),

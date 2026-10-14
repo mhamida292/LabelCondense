@@ -13,4 +13,5 @@ if _base:
             os.path.join(_resources, "Resource", "Init"),
             os.path.join(_resources, "lib"),
             os.path.join(_resources, "iccprofiles"),
+            os.path.join(_resources, "fonts"),
         ])
