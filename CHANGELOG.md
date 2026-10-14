@@ -3,6 +3,15 @@
 Each release's section becomes the "What's new" part of its notes on the
 Releases page. The release build refuses a tag that has no section here.
 
+## v1.5.0
+
+- **New look.** A cleaner, modern window on Windows, Mac and Linux: a header
+  with the app's name, tabs that show which one you're on, and the main
+  button on each screen in teal. It follows your computer's light or dark
+  setting.
+- **App icon.** Label Condense has its own icon in the taskbar, Dock, title
+  bar and app menu.
+
 ## v1.4.0
 
 - **Giveaways stand out.** On any item whose name starts with GIVEAWAY, the

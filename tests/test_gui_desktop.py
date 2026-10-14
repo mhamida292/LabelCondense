@@ -46,7 +46,7 @@ def test_oserror_on_install_does_not_propagate(app, monkeypatch):
     monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
     monkeypatch.setattr(sys, "executable", "/opt/label-condense")
     monkeypatch.setattr(platform_bits, "install_desktop_entry",
-                        lambda exe: (_ for _ in ()).throw(OSError("Read-only filesystem")))
+                        lambda exe, icon=None: (_ for _ in ()).throw(OSError("Read-only filesystem")))
     shown_error = []
     monkeypatch.setattr(packing_gui.messagebox, "showerror",
                         lambda *a, **k: shown_error.append((a, k)))
@@ -83,7 +83,7 @@ def test_failed_install_is_remembered(app, monkeypatch, tmp_path):
     monkeypatch.setattr(packing_gui.messagebox, "askyesno", lambda *a, **k: True)
     monkeypatch.setattr(sys, "executable", "/opt/label-condense")
     monkeypatch.setattr(platform_bits, "install_desktop_entry",
-                        lambda exe: (_ for _ in ()).throw(OSError("Read-only")))
+                        lambda exe, icon=None: (_ for _ in ()).throw(OSError("Read-only")))
     shown_error = []
     monkeypatch.setattr(packing_gui.messagebox, "showerror",
                         lambda *a, **k: shown_error.append((a, k)))

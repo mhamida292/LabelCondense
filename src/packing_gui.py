@@ -8,6 +8,7 @@ import branding
 import job as jobmod
 import logstore
 import platform_bits
+import theme
 import whatnot_slips as ws
 
 STATES = ("idle", "working", "done", "failed")
@@ -16,7 +17,8 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Label Condense")
-        root.minsize(460, 300)
+        root.minsize(520, 380)
+        self.colors = theme.palette(root)
         self.queue = queue.Queue()
         self.state = "idle"
         self.current_tab = "run"
@@ -27,12 +29,26 @@ class App:
         self._after_id = None
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        bar = ttk.Frame(root); bar.pack(fill="x")
-        self.run_btn = ttk.Button(bar, text="Run", command=lambda: self.tab("run"))
-        self.logs_btn = ttk.Button(bar, text="Logs", command=lambda: self.tab("logs"))
-        self.run_btn.pack(side="left"); self.logs_btn.pack(side="left")
-        self.brand_btn = ttk.Button(bar, text="Branding", command=lambda: self.tab("branding"))
-        self.brand_btn.pack(side="left")
+        head = ttk.Frame(root, padding=(18, 14, 18, 6)); head.pack(fill="x")
+        try:
+            self.header_icon = tk.PhotoImage(file=str(theme.asset("icon-32.png")))
+            ttk.Label(head, image=self.header_icon).pack(side="left", padx=(0, 10))
+        except tk.TclError:
+            pass
+        ttk.Label(head, text="Label Condense",
+                  font=("TkDefaultFont", 15, "bold")).pack(side="left")
+
+        bar = ttk.Frame(root, padding=(18, 4, 18, 10)); bar.pack(fill="x")
+        tab_btn = lambda text, name: ttk.Button(
+            bar, text=text, width=9, style="Toggle.TButton", command=lambda: self.tab(name))
+        self.run_btn = tab_btn("Run", "run")
+        self.logs_btn = tab_btn("Logs", "logs")
+        self.brand_btn = tab_btn("Branding", "branding")
+        self.tab_btns = {"run": self.run_btn, "logs": self.logs_btn, "branding": self.brand_btn}
+        for b in self.tab_btns.values():
+            b.pack(side="left", padx=(0, 6))
+        self.run_btn.state(["selected"])
+        ttk.Separator(root).pack(fill="x")
 
         self.panes = {
             "run": ttk.Frame(root),
@@ -57,6 +73,7 @@ class App:
         self.current_tab = which
         for name, pane in self.panes.items():
             pane.pack_forget()
+            self.tab_btns[name].state(["selected" if name == which else "!selected"])
         self.panes[which].pack(fill="both", expand=True)
         if which == "logs":
             self.badge_visible = False
@@ -67,7 +84,7 @@ class App:
         self.state = name
         for f in self.frames.values():
             f.pack_forget()
-        self.frames[name].pack(fill="both", expand=True, padx=24, pady=20)
+        self.frames[name].pack(fill="both", expand=True, padx=18, pady=18)
         if hasattr(self, "brand_widgets"):
             self._lock_branding(name == "working")
 
@@ -77,20 +94,28 @@ class App:
 
     # ---------------------------------------------------------------- logs
     def _build_logs(self, pane):
-        top = ttk.Frame(pane); top.pack(fill="x", padx=12, pady=(10, 6))
+        top = ttk.Frame(pane); top.pack(fill="x", padx=18, pady=(14, 8))
         self.picker = ttk.Combobox(top, state="readonly", values=[])
         self.picker.pack(fill="x")
         self.picker.bind("<<ComboboxSelected>>",
                          lambda e: self.select_report(self.picker.current()))
 
-        self.logbox = tk.Text(pane, height=10, wrap="word", font=("TkFixedFont", 9))
-        self.logbox.pack(fill="both", expand=True, padx=12)
+        self.logbox = tk.Text(pane, height=10, wrap="word", font=("TkFixedFont", 9),
+                              **self._text_colors())
+        self.logbox.pack(fill="both", expand=True, padx=18)
         self.logbox.configure(state="disabled")
 
-        foot = ttk.Frame(pane); foot.pack(fill="x", padx=12, pady=8)
+        foot = ttk.Frame(pane); foot.pack(fill="x", padx=18, pady=12)
         ttk.Button(foot, text="Save report…", command=self.save_report).pack(side="right")
         ttk.Button(foot, text="Open folder",
                    command=lambda: platform_bits.reveal(logstore.log_dir())).pack(side="right", padx=6)
+
+    def _text_colors(self):
+        """tk.Text isn't a ttk widget, so the theme can't reach it."""
+        c = self.colors
+        return dict(background=c["field"], foreground=c["fg"], insertbackground=c["fg"],
+                    relief="flat", padx=8, pady=6, highlightthickness=1,
+                    highlightbackground=c["border"], highlightcolor=c["border"])
 
     def log_text(self):
         return self.logbox.get("1.0", "end-1c")
@@ -141,39 +166,44 @@ class App:
     def _build_branding(self, pane):
         saved = branding.load()
         self.form_logo = saved.logo
-        f = ttk.Frame(pane); f.pack(fill="both", expand=True, padx=16, pady=12)
+        f = ttk.Frame(pane); f.pack(fill="both", expand=True, padx=18, pady=16)
         f.columnconfigure(1, weight=1)
 
         self.brand_on = tk.BooleanVar(value=saved.enabled)
-        on = ttk.Checkbutton(f, text="Show branding on slips", variable=self.brand_on)
-        on.grid(row=0, column=0, columnspan=3, sticky="w")
+        on = ttk.Checkbutton(f, text="Show branding on slips", variable=self.brand_on,
+                             style="Switch.TCheckbutton")
+        on.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
 
         ttk.Label(f, text="Shop name").grid(row=1, column=0, sticky="w", pady=(10, 0))
         self.shop_name = tk.StringVar(value=saved.shop_name)
         name = ttk.Entry(f, textvariable=self.shop_name)
-        name.grid(row=1, column=1, columnspan=2, sticky="we", pady=(10, 0))
+        name.grid(row=1, column=1, columnspan=2, sticky="we", padx=(12, 0), pady=(10, 0))
 
         ttk.Label(f, text="Logo").grid(row=2, column=0, sticky="nw", pady=(10, 0))
-        self.logo_view = ttk.Label(f, text="(none — the shop name is shown)")
-        self.logo_view.grid(row=2, column=1, sticky="w", pady=(10, 0))
+        self.logo_view = ttk.Label(f, text="(none — the shop name is shown)",
+                                   foreground=self.colors["muted"])
+        self.logo_view.grid(row=2, column=1, sticky="w", padx=(12, 0), pady=(10, 0))
         btns = ttk.Frame(f); btns.grid(row=2, column=2, sticky="ne", pady=(10, 0))
         choose = ttk.Button(btns, text="Choose…", command=self.choose_logo)
         remove = ttk.Button(btns, text="Remove", command=self.remove_logo)
         choose.pack(fill="x"); remove.pack(fill="x", pady=(4, 0))
 
         ttk.Label(f, text="Message").grid(row=3, column=0, sticky="nw", pady=(10, 0))
-        self.message_box = tk.Text(f, height=2, width=30, wrap="word")
+        self.message_box = tk.Text(f, height=3, width=30, wrap="word",
+                                   font="TkDefaultFont", **self._text_colors())
         self.message_box.insert("1.0", saved.message)
-        self.message_box.grid(row=3, column=1, columnspan=2, sticky="we", pady=(10, 0))
+        self.message_box.grid(row=3, column=1, columnspan=2, sticky="we",
+                              padx=(12, 0), pady=(10, 0))
 
-        foot = ttk.Frame(f); foot.grid(row=4, column=0, columnspan=3, sticky="we", pady=(14, 0))
+        foot = ttk.Frame(f); foot.grid(row=4, column=0, columnspan=3, sticky="we", pady=(18, 0))
         preview = ttk.Button(foot, text="Preview slip", command=self.preview_slip)
         preview.pack(side="left")
-        self.brand_save_btn = ttk.Button(foot, text="Save", command=self.save_branding)
+        self.brand_save_btn = ttk.Button(foot, text="Save", width=10, style="Accent.TButton",
+                                         command=self.save_branding)
         self.brand_save_btn.pack(side="right")
         self.brand_status = tk.StringVar(value="")
         ttk.Label(foot, textvariable=self.brand_status,
-                  foreground="#6a6d73").pack(side="right", padx=8)
+                  foreground=self.colors["muted"]).pack(side="right", padx=10)
 
         self.brand_widgets = [on, name, choose, remove, preview, self.brand_save_btn]
         self._show_logo()
@@ -274,11 +304,14 @@ class App:
 
     # ---------------------------------------------------------------- idle
     def _build_idle(self, f):
-        ttk.Label(f, text="Drop a Whatnot export here",
-                  font=("TkDefaultFont", 12)).pack(pady=(28, 14))
-        ttk.Button(f, text="Choose file…", command=self.pick_file).pack()
-        ttk.Label(f, text="Combined Labels + Packing Slips, straight from Whatnot.",
-                  foreground="#6a6d73").pack(pady=(16, 0))
+        card = ttk.Frame(f, style="Card.TFrame", padding=30)
+        card.pack(fill="both", expand=True)
+        ttk.Label(card, text="Drop a Whatnot export here",
+                  font=("TkDefaultFont", 14, "bold")).pack(pady=(20, 6))
+        ttk.Label(card, text="Combined Labels + Packing Slips, straight from Whatnot.",
+                  foreground=self.colors["muted"]).pack()
+        ttk.Button(card, text="Choose file…", width=16, style="Accent.TButton",
+                   command=self.pick_file).pack(pady=18, ipady=3)
 
     def pick_file(self, path=None):
         if path is None:
@@ -300,28 +333,29 @@ class App:
         self.bar = ttk.Progressbar(f, mode="determinate", length=380)
         self.bar.pack()
         ttk.Label(f, textvariable=self.progress_text,
-                  foreground="#6a6d73").pack(pady=(10, 2))
-        ttk.Label(f, textvariable=self.stage_text, foreground="#6a6d73").pack()
+                  foreground=self.colors["muted"]).pack(pady=(10, 2))
+        ttk.Label(f, textvariable=self.stage_text, foreground=self.colors["muted"]).pack()
 
     def _build_done(self, f):
         self.stats_text = tk.StringVar(value="")
-        ttk.Label(f, text="✓  Ready to print", foreground="#1f7a3f",
+        ttk.Label(f, text="✓  Ready to print", foreground=self.colors["ok"],
                   font=("TkDefaultFont", 13, "bold")).pack(pady=(26, 10))
-        ttk.Label(f, textvariable=self.stats_text, foreground="#6a6d73",
+        ttk.Label(f, textvariable=self.stats_text, foreground=self.colors["muted"],
                   justify="center").pack()
         row = ttk.Frame(f); row.pack(pady=16)
-        ttk.Button(row, text="Print", command=self.do_print).pack(side="left", padx=5)
+        ttk.Button(row, text="Print", width=10, style="Accent.TButton",
+                   command=self.do_print).pack(side="left", padx=5)
         ttk.Button(row, text="Do another", command=self.reset).pack(side="left", padx=5)
         ttk.Button(f, text="See the full report",
                    command=lambda: self.tab("logs")).pack()
 
     def _build_failed(self, f):
         self.fail_text = tk.StringVar(value="")
-        ttk.Label(f, text="✗  DO NOT PRINT", foreground="#b3261e",
+        ttk.Label(f, text="✗  DO NOT PRINT", foreground=self.colors["bad"],
                   font=("TkDefaultFont", 13, "bold")).pack(pady=(26, 10))
         ttk.Label(f, text="This export failed its checks. Nothing was saved.",
                   justify="center").pack()
-        ttk.Label(f, textvariable=self.fail_text, foreground="#6a6d73").pack(pady=(6, 0))
+        ttk.Label(f, textvariable=self.fail_text, foreground=self.colors["muted"]).pack(pady=(6, 0))
         row = ttk.Frame(f); row.pack(pady=16)
         ttk.Button(row, text="See what failed",
                    command=lambda: self.tab("logs")).pack(side="left", padx=5)
@@ -445,7 +479,7 @@ class App:
             "without hunting for this file?\n\nYou'll only be asked once.")
         try:
             if yes:
-                platform_bits.install_desktop_entry(sys.executable)
+                platform_bits.install_desktop_entry(sys.executable, theme.asset("icon-256.png"))
             else:
                 platform_bits.remember_desktop_choice(False)
         except OSError:
@@ -470,6 +504,12 @@ def main():
             png = pathlib.Path(td) / "preview.png"
             ws.preview_png(branding.Brand(enabled=True, shop_name="Selftest"), png)
             print(f"selftest: preview ok ({png.stat().st_size} bytes)")
+        missing = [n for n in ("sv/sv.tcl", "icon-256.png", "icon-32.png")
+                   if not theme.asset(n).is_file()]
+        if missing:
+            print(f"selftest: missing assets {missing}")
+            sys.exit(1)
+        print("selftest: theme and icons present")
         sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
         import tempfile
@@ -480,6 +520,7 @@ def main():
         sys.exit(0 if res.ok else 1)
 
     root = tk.Tk()
+    theme.apply(root)
     app = App(root)
     app.maybe_offer_desktop_entry()
     if sys.platform == "darwin":          # dropped on the Dock or Finder icon

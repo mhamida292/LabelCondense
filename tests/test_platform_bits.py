@@ -95,3 +95,14 @@ def test_never_offer_on_mac(monkeypatch):
     monkeypatch.setattr(pb, "_mac", lambda: True)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert pb.should_offer_desktop_entry() is False
+
+def test_desktop_entry_carries_the_app_icon(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    png = tmp_path / "icon.png"; png.write_bytes(b"\x89PNG fake")
+    p = pb.install_desktop_entry("/opt/label-condense", png)
+    assert "Icon=label-condense\n" in p.read_text()
+    assert pb.icon_path().read_bytes() == png.read_bytes()
+
+def test_desktop_entry_without_icon_uses_stock_one(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert "Icon=document-print\n" in pb.install_desktop_entry("/opt/x").read_text()

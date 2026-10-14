@@ -76,16 +76,27 @@ def _quote_exec_path(exe):
     escaped = escaped.replace("$", "\\$")
     return f'"{escaped}"'
 
-def install_desktop_entry(exe):
+def icon_path():
+    return _data_home() / "icons" / "hicolor" / "256x256" / "apps" / "label-condense.png"
+
+def install_desktop_entry(exe, icon=None):
+    """`icon`: the app's PNG, copied where the menu looks for icons. Without
+    one the entry falls back to a stock printer icon."""
     p = desktop_entry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    icon_name = "document-print"
+    if icon is not None and pathlib.Path(icon).is_file():
+        import shutil
+        icon_path().parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(icon, icon_path())
+        icon_name = "label-condense"
     quoted_exe = _quote_exec_path(exe)
     p.write_text(
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=Label Condense\n"
         "Comment=Rebuild a Whatnot export into print-ready packing slips\n"
-        "Icon=document-print\n"
+        f"Icon={icon_name}\n"
         f"Exec={quoted_exe} %f\n"
         "Terminal=false\n"
         "MimeType=application/pdf;\n"
@@ -94,3 +105,34 @@ def install_desktop_entry(exe):
     p.chmod(0o755)
     _legacy_desktop_entry_path().unlink(missing_ok=True)
     return p
+
+def _quiet(argv):
+    """A short probe's stdout, or '' if the tool is missing, fails or hangs."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+def prefers_dark():
+    """Whether the desktop is set to dark mode. Read once at startup; any
+    doubt means light."""
+    if _windows():
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+                return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+        except OSError:
+            return False
+    if _mac():
+        return _quiet(["defaults", "read", "-g", "AppleInterfaceStyle"]).strip() == "Dark"
+    # The freedesktop portal answers for KDE and GNOME alike: 1 means dark.
+    portal = _quiet(["gdbus", "call", "--session",
+                     "--dest", "org.freedesktop.portal.Desktop",
+                     "--object-path", "/org/freedesktop/portal/desktop",
+                     "--method", "org.freedesktop.portal.Settings.Read",
+                     "org.freedesktop.appearance", "color-scheme"])
+    if "uint32" in portal:
+        return "uint32 1" in portal
+    return "dark" in _quiet(["gsettings", "get", "org.gnome.desktop.interface",
+                             "color-scheme"])

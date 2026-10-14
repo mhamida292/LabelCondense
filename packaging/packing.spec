@@ -25,6 +25,9 @@ if _xcb.exists():
 # by collect_binaries.py, has no home directory on a clean-room machine.
 _gs_resources = root / "packaging" / "gs-resources"
 datas = [(str(_gs_resources), "gs-resources")] if _gs_resources.exists() else []
+# Theme and icons (theme.asset() finds them under assets/ when frozen).
+datas.append((str(root / "src" / "assets"), "assets"))
+_icons = root / "packaging" / "icons"
 
 a = Analysis(
     [str(root / "src" / "packing_gui.py")],
@@ -53,6 +56,7 @@ if sys.platform == "darwin":
         coll,
         name="Label Condense.app",
         bundle_identifier="io.github.mhamida292.labelcondense",
+        icon=str(_icons / "label-condense.icns"),
         info_plist={
             "NSHighResolutionCapable": True,
             # Lets a PDF be dropped on the Dock/Finder icon.
@@ -70,4 +74,5 @@ else:
         name="label-condense",
         console=False,
         upx=False,
+        icon=str(_icons / "label-condense.ico") if sys.platform == "win32" else None,
     )
