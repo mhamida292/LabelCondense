@@ -1,5 +1,12 @@
 import os, pathlib, sys
+import pytest
 import platform_bits as pb
+
+@pytest.fixture(autouse=True)
+def not_a_mac(monkeypatch):
+    """These tests describe Linux and Windows unless they say otherwise,
+    whichever OS runs them."""
+    monkeypatch.setattr(pb, "_mac", lambda: False)
 
 def test_open_for_print_uses_startfile_on_windows(monkeypatch, tmp_path):
     calls = []
@@ -71,4 +78,20 @@ def test_decline_under_old_name_is_still_honoured(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     f = tmp_path / "packing-slips" / "desktop-entry-declined"
     f.parent.mkdir(parents=True); f.write_text("declined\n")
+    assert pb.should_offer_desktop_entry() is False
+
+def test_mac_opens_pdf_and_folder_with_open(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(pb, "_windows", lambda: False)
+    monkeypatch.setattr(pb, "_mac", lambda: True)
+    monkeypatch.setattr(pb.subprocess, "Popen", lambda argv, **kw: calls.append(argv))
+    f = tmp_path / "a.pdf"; f.write_text("x")
+    pb.open_for_print(f)
+    pb.reveal(f)
+    assert calls == [["open", str(f)], ["open", str(tmp_path)]]
+
+def test_never_offer_on_mac(monkeypatch):
+    monkeypatch.setattr(pb, "_windows", lambda: False)
+    monkeypatch.setattr(pb, "_mac", lambda: True)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert pb.should_offer_desktop_entry() is False

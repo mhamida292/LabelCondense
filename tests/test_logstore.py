@@ -1,4 +1,4 @@
-import datetime as dt, os
+import datetime as dt, os, sys
 import pytest
 import logstore
 
@@ -56,7 +56,7 @@ def test_list_reports_tolerates_unreadable_files(tmp_path, monkeypatch):
     assert len(reports) == 1
     assert reports[0].source == "ok.pdf"
 
-@pytest.mark.skipif(os.name == "nt", reason="exercises the XDG path")
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="exercises the XDG path")
 def test_logs_from_old_app_name_are_carried_over(tmp_path, monkeypatch):
     monkeypatch.delenv("PACKING_LOG_DIR", raising=False)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
@@ -66,7 +66,7 @@ def test_logs_from_old_app_name_are_carried_over(tmp_path, monkeypatch):
     assert (tmp_path / "label-condense" / "logs" / "20260911-090141-ok.log").exists()
     assert not (tmp_path / "packing-slips").exists()
 
-@pytest.mark.skipif(os.name == "nt", reason="exercises the XDG path")
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="exercises the XDG path")
 def test_existing_new_dir_is_not_clobbered(tmp_path, monkeypatch):
     monkeypatch.delenv("PACKING_LOG_DIR", raising=False)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
@@ -74,3 +74,10 @@ def test_existing_new_dir_is_not_clobbered(tmp_path, monkeypatch):
     (tmp_path / "label-condense" / "logs").mkdir(parents=True)
     assert logstore.log_dir() == tmp_path / "label-condense" / "logs"
     assert (tmp_path / "packing-slips").exists()
+
+def test_mac_keeps_data_in_application_support(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    if os.name == "nt":
+        pytest.skip("Path.home() ignores HOME on Windows")
+    assert logstore.data_dir() == tmp_path / "Library" / "Application Support" / "LabelCondense"

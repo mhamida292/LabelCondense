@@ -463,6 +463,14 @@ class App:
                 f"The application menu entry could not be created, but Label Condense works normally. {msg}")
 
 def main():
+    if sys.argv[1:] == ["--selftest"]:
+        # No export to hand (CI): prove the bundled gs starts and renders.
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            png = pathlib.Path(td) / "preview.png"
+            ws.preview_png(branding.Brand(enabled=True, shop_name="Selftest"), png)
+            print(f"selftest: preview ok ({png.stat().st_size} bytes)")
+        sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
         import tempfile
         with tempfile.TemporaryDirectory() as td:
@@ -474,6 +482,9 @@ def main():
     root = tk.Tk()
     app = App(root)
     app.maybe_offer_desktop_entry()
+    if sys.platform == "darwin":          # dropped on the Dock or Finder icon
+        root.createcommand("::tk::mac::OpenDocument",
+                           lambda *paths: app.pick_file(paths[0]))
     if len(sys.argv) > 1:                 # dropped on the icon
         app.pick_file(sys.argv[1])
     root.mainloop()

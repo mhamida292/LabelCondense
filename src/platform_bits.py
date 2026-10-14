@@ -10,6 +10,10 @@ def _windows():
     """
     return os.name == "nt"
 
+def _mac():
+    """Whether we are on macOS; patched by tests like _windows()."""
+    return sys.platform == "darwin"
+
 def _data_home():
     base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
     return pathlib.Path(base)
@@ -17,6 +21,8 @@ def _data_home():
 def open_for_print(path):
     if _windows():
         os.startfile(str(path), "print")       # noqa: F821 - Windows only
+    elif _mac():
+        subprocess.Popen(["open", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path)])
 
@@ -24,6 +30,8 @@ def reveal(path):
     d = path if path.is_dir() else path.parent
     if _windows():
         subprocess.Popen(["explorer", str(d)])
+    elif _mac():
+        subprocess.Popen(["open", str(d)])
     else:
         subprocess.Popen(["xdg-open", str(d)])
 
@@ -41,7 +49,7 @@ def _legacy_choice_file():
     return _data_home() / "packing-slips" / "desktop-entry-declined"
 
 def should_offer_desktop_entry():
-    if _windows():
+    if _windows() or _mac():
         return False
     if not getattr(sys, "frozen", False):
         return False

@@ -1,7 +1,7 @@
 """Where run reports are kept. Reports contain buyer usernames on failure
 lines, so they live in the user's own data directory — never in the bundle,
 which is a temp dir that vanishes, and never anywhere shared."""
-import datetime as dt, json, os, pathlib
+import datetime as dt, json, os, pathlib, sys
 from dataclasses import dataclass
 
 APP = "LabelCondense"
@@ -25,6 +25,8 @@ def data_dir():
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or (pathlib.Path.home() / "AppData/Local")
         return _adopt_legacy(pathlib.Path(base), "PackingSlips", APP)
+    if sys.platform == "darwin":
+        return pathlib.Path.home() / "Library" / "Application Support" / APP
     base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local/share")
     return _adopt_legacy(pathlib.Path(base), "packing-slips", "label-condense")
 

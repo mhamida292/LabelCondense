@@ -36,9 +36,38 @@ a = Analysis(
     runtime_hooks=[str(root / "packaging" / "rthook_gs_env.py")],
 )
 pyz = PYZ(a.pure)
-exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
-    name="label-condense",
-    console=False,
-    upx=False,
-)
+
+if sys.platform == "darwin":
+    # A Mac app is a folder (Label Condense.app), not one file: PyInstaller is
+    # dropping one-file .app bundles, and a bare executable opens a Terminal
+    # window when double-clicked. The release zips the .app.
+    exe = EXE(
+        pyz, a.scripts, [],
+        exclude_binaries=True,
+        name="label-condense",
+        console=False,
+        upx=False,
+    )
+    coll = COLLECT(exe, a.binaries, a.datas, name="label-condense", upx=False)
+    app = BUNDLE(
+        coll,
+        name="Label Condense.app",
+        bundle_identifier="io.github.mhamida292.labelcondense",
+        info_plist={
+            "NSHighResolutionCapable": True,
+            # Lets a PDF be dropped on the Dock/Finder icon.
+            "CFBundleDocumentTypes": [{
+                "CFBundleTypeName": "PDF document",
+                "CFBundleTypeRole": "Viewer",
+                "LSItemContentTypes": ["com.adobe.pdf"],
+                "LSHandlerRank": "Alternate",
+            }],
+        },
+    )
+else:
+    exe = EXE(
+        pyz, a.scripts, a.binaries, a.datas, [],
+        name="label-condense",
+        console=False,
+        upx=False,
+    )
