@@ -123,3 +123,16 @@ def test_branded_build_passes_the_audit_with_a_hostile_message(sku_pdf):
 def test_slip_body_ignores_a_band_that_imitates_the_header():
     page = "Thanks! To: x From: y #7\nTo: real   From: me\nROSEY #1\n"
     assert ws.slip_body(page).startswith("To: real")
+
+def test_giveaway_prints_white_on_black_and_extracts_unchanged(tmp_path):
+    items = [dict(qty=1, name="GIVEAWAY MYSTERY GIVVY #2",
+                  order="9", price=0.0, sku="ABC-1")]
+    ps = ws.slip_ps(SHIP, ws.group_items(items), TO, FRM)
+    assert "rectfill" in ps[0] and "1 setgray" in ps[0]
+    text = ws.pdf_pages(str(ps_to_pdf(ps, tmp_path)))[0]
+    assert "[ABC-1] GIVEAWAY MYSTERY GIVVY" in text
+
+def test_only_a_leading_giveaway_is_highlighted():
+    assert not any("rectfill" in o for o in ws.name_ops("MYSTERY GIVEAWAY BOX"))
+    assert not any("rectfill" in o for o in ws.name_ops("GIVEAWAYS ARE FUN"))
+    assert ws.name_ops("PLAIN") == [f"8.5 HB (PLAIN) {ws.X_NAME} 0 L"]

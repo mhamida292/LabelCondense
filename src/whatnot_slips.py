@@ -228,12 +228,29 @@ def display_name(e):
     picker reads to find the bin."""
     return f"[{e['sku']}] {e['product']}" if e.get('sku') else e['product']
 
+RE_GIVEAWAY = re.compile(r'^(\[[^\]]*\] )?(GIVEAWAY)\b', re.I)
+
+def name_ops(line):
+    """A product-name line. A leading GIVEAWAY prints white on black so the
+    packer can't miss it. The line is drawn as consecutive pieces at their
+    exact widths, so it extracts as the very same text as one plain string."""
+    m = RE_GIVEAWAY.match(line)
+    if not m:
+        return [f"8.5 HB ({esc(line)}) {X_NAME} 0 L"]
+    pre, word, rest = m.group(1) or '', m.group(2), line[m.end():]
+    x = X_NAME + sw(pre, 8.5, True); w = sw(word, 8.5, True)
+    ops = [f"8.5 HB ({esc(pre)}) {X_NAME} 0 L"] if pre else []
+    ops += [f"{x - 1.5:.1f} -2 {w + 3:.1f} 9.5 rectfill",
+            f"1 setgray 8.5 HB ({esc(word)}) {x:.1f} 0 L 0 setgray"]
+    if rest: ops.append(f"8.5 HB ({esc(rest)}) {x + w:.1f} 0 L")
+    return ops
+
 def build_rows(grouped):
     blocks = []
     for e in grouped:
         b, ls = [], wrap(display_name(e), NAME_W, 8.5, True)
         head = [f"9 HB ({esc(str(e['qty']))}) {X_QTY} 0 L",
-                f"8.5 HB ({esc(ls[0])}) {X_NAME} 0 L",
+                *name_ops(ls[0]),
                 f"9 HB ({esc('$%.2f' % e['subtotal'])}) {X_SUB} 0 R"]
         inlined, num, bx = False, None, 0.0
         if len(e['variants']) == 1:
@@ -492,9 +509,10 @@ def preview_png(brand, png):
     in pure black and white -- what the Branding tab shows is what prints."""
     ship = dict(svc='USPS Ground Advantage', dims='12 x 12 x 12 in',
                 track='9300120762602517212464', weight='7.0 oz')
-    items = [dict(qty=1, name='ROSEY BALL #2', order='1', price=2.0, sku='A-T-63'),
-             dict(qty=1, name='ROSEY BALL #3', order='2', price=3.0, sku='A-T-63'),
-             dict(qty=1, name='CRUNCHY LOBSTER #1', order='3', price=3.0, sku='TB200-477')]
+    items = [dict(qty=1, name='SAMPLE ITEM #2', order='1', price=2.0, sku='ABC-123'),
+             dict(qty=1, name='SAMPLE ITEM #3', order='2', price=3.0, sku='ABC-123'),
+             dict(qty=1, name='ANOTHER ITEM #1', order='3', price=3.0, sku='XYZ-789'),
+             dict(qty=1, name='GIVEAWAY MYSTERY PRIZE #4', order='4', price=0.0)]
     to = ['To: buyer123', 'Jane Buyer', '1 Main St', 'Springfield, IL 62701']
     frm = ['From: ' + (renderable(brand.shop_name) or 'your shop'),
            '2 Shop Rd', 'Townsville, CA 90001']

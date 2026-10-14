@@ -81,6 +81,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
+      - uses: actions/checkout@v4
+      - name: Build the notes from CHANGELOG.md
+        run: |
+          awk -v v="$GITHUB_REF_NAME" '/^## /{p = ($2 == v); next} p' CHANGELOG.md > new.md
+          grep -q '[^[:space:]]' new.md || { echo "CHANGELOG.md has no ## $GITHUB_REF_NAME section"; exit 1; }
+          { echo "## What's new"; cat new.md; echo; echo "## Download"; echo; cat .github/release-download.md; } > notes.md
+          cat notes.md
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
       - uses: softprops/action-gh-release@v2
@@ -89,16 +96,4 @@ jobs:
             artifacts/label-condense-linux/label-condense
             artifacts/label-condense-windows/label-condense.exe
             artifacts/label-condense-macos/LabelCondense-mac.zip
-          body: |
-            Download one file and double-click it. Nothing to install.
-
-            - **Windows:** `label-condense.exe`. Windows will warn that it is
-              unsigned — choose **More info → Run anyway**.
-            - **Linux:** `label-condense`. Run `chmod +x label-condense` once.
-              Needs glibc 2.35 or newer (Ubuntu 22.04+).
-            - **Mac:** `LabelCondense-mac.zip` (Apple Silicon, macOS 14.8 Sonoma or newer).
-              Unzip it and drag **Label Condense** into Applications. It is
-              unsigned, so the first open is refused: open **System Settings →
-              Privacy & Security**, scroll down and click **Open Anyway**.
-
-            Bundles Ghostscript (AGPL) and Poppler (GPL) — see NOTICE.md.
+          body_path: notes.md
