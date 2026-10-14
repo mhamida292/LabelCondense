@@ -51,8 +51,8 @@ jobs:
           path: dist/label-condense.exe
 
   macos:
-    # Apple Silicon. Homebrew bottles on this runner target macOS 14, so that
-    # is the floor the download promises.
+    # Apple Silicon. Homebrew's libraries here require macOS 14.8 (the step
+    # below prints the floor); the release notes promise that.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +96,7 @@ jobs:
               unsigned — choose **More info → Run anyway**.
             - **Linux:** `label-condense`. Run `chmod +x label-condense` once.
               Needs glibc 2.35 or newer (Ubuntu 22.04+).
-            - **Mac:** `LabelCondense-mac.zip` (Apple Silicon, macOS 14+).
+            - **Mac:** `LabelCondense-mac.zip` (Apple Silicon, macOS 14.8 Sonoma or newer).
               Unzip it and drag **Label Condense** into Applications. It is
               unsigned, so the first open is refused: open **System Settings →
               Privacy & Security**, scroll down and click **Open Anyway**.

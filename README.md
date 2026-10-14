@@ -15,6 +15,7 @@ and get one file. There is nothing to install.
 |---|---|
 | **Windows** | `label-condense.exe` — double-click it. The first time, Windows says "Windows protected your PC" because the file is not code-signed. Click **More info**, then **Run anyway**. |
 | **Linux** | `label-condense` — run `chmod +x label-condense` once, then double-click. Needs Ubuntu 22.04 or newer. |
+| **Mac** | `LabelCondense-mac.zip` — unzip it and drag **Label Condense** into Applications. Apple Silicon (M1 or newer) with macOS 14.8 or newer. The first open is refused because the app is not signed: open **System Settings → Privacy & Security**, scroll down, click **Open Anyway**. |
 
 Then: drag a Whatnot export onto the icon, or open the app and click
 **Choose file…**. Pick where to save, wait about 90 seconds while the progress
