@@ -54,6 +54,7 @@ def footer_fits(text):
             and all(ws.sw(ln, ws.FOOT_SIZE) <= ws.FOOT_W for ln in lines))
 
 def _footer_has_marker(text):
+    text = ws.renderable(text)
     return any(m in text for m in PAGE_MARKERS)
 
 def name_fits(name):

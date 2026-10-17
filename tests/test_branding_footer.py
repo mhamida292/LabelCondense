@@ -50,3 +50,14 @@ def test_a_wrong_typed_footer_enabled_is_not_coerced():
 def test_footer_lines_empty_and_wrapped_to_two():
     assert ws.footer_lines("") == []
     assert len(ws.footer_lines("word " * 40)) == 2
+
+@pytest.mark.parametrize("text", ["Pick\nList", "Packing  Slip"])
+def test_footer_marker_words_are_caught_after_whitespace_collapse(text):
+    assert any("footer can't contain" in e for e in
+               branding.problems(branding.Brand(footer=text)))
+
+def test_hand_edited_footer_with_a_marker_word_is_dropped_with_a_note():
+    (sdir() / "settings.json").write_text('{"footer_enabled": true, "footer": "Pick\\nList"}')
+    b = branding.load()
+    assert b.footer == "" and any("footer" in n for n in b.notes)
+    assert branding.active_footer() is None
