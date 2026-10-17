@@ -282,11 +282,13 @@ def build_rows(grouped):
         blocks.append(b)
     return blocks
 
-def slip_ps(ship, grouped, to, frm, brand=None):
+def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
     blocks = build_rows(grouped)
     n = sum(e['qty'] for e in grouped); tot = sum(e['subtotal'] for e in grouped)
     d = BAND if brand else 0         # a branded header pushes everything down
-    TOP_Y, BOT_Y = H - 116 - d, 74.0
+    fl = footer_lines(footer or "")
+    u = FOOT_BAND if fl else 0      # a footer lifts the bottom block
+    TOP_Y, BOT_Y = H - 116 - d, 74.0 + u
     pages, cur, y = [], [], TOP_Y
     for b in blocks:
         need = sum(h for h, _ in b) + 3
@@ -339,14 +341,18 @@ def slip_ps(ship, grouped, to, frm, brand=None):
                 A(f"gsave 0 {y:.1f} translate"); s.extend(ops); A("grestore")
                 y -= h
             y -= 3
-        A(f"0.8 setlinewidth {M} 66 moveto {W-M} 66 lineto stroke")
+        A(f"0.8 setlinewidth {M} {66+u} moveto {W-M} {66+u} lineto stroke")
         if pi == len(pages):
-            A(f"9 HB ({n} Item{'s' if n != 1 else ''}) {M} 52 L")
-            A(f"9 HB ({esc('$%.2f' % tot)}) {W-M} 52 R")
-        A(f"7.5 HV ({esc(ship.get('svc',''))}) {M} 34 L")
-        A(f"7.5 HV ({esc(ship.get('dims',''))}) {W-M} 34 R")
-        A(f"7 CO (#{esc(ship.get('track',''))}) {M} 22 L")
-        A(f"7.5 HV ({esc(ship.get('weight',''))}) {W-M} 22 R")
+            A(f"9 HB ({n} Item{'s' if n != 1 else ''}) {M} {52+u} L")
+            A(f"9 HB ({esc('$%.2f' % tot)}) {W-M} {52+u} R")
+        A(f"7.5 HV ({esc(ship.get('svc',''))}) {M} {34+u} L")
+        A(f"7.5 HV ({esc(ship.get('dims',''))}) {W-M} {34+u} R")
+        A(f"7 CO (#{esc(ship.get('track',''))}) {M} {22+u} L")
+        A(f"7.5 HV ({esc(ship.get('weight',''))}) {W-M} {22+u} R")
+        if fl:
+            A(f"0.5 setlinewidth {M} 40 moveto {W-M} 40 lineto stroke")
+            for k, ln in enumerate(fl):
+                A(f"{FOOT_SIZE} HV ({esc(ln)}) {(W - sw(ln, FOOT_SIZE)) / 2:.1f} {29 - FOOT_LEAD * k} L")
         A("showpage")
         out.append("\n".join(s) + "\n")
     return out
@@ -516,7 +522,7 @@ def build(src, out, quiet=False, progress=None, brand=None):
         os.unlink(psfile)
     return len(data), nsl, nlb
 
-def preview_png(brand, png):
+def preview_png(brand, png, footer=None, prices=True):
     """One sample slip through the real renderer, at a thermal head's 203 dpi
     in pure black and white -- what the Branding tab shows is what prints."""
     ship = dict(svc='USPS Ground Advantage', dims='12 x 12 x 12 in',
@@ -526,10 +532,11 @@ def preview_png(brand, png):
              dict(qty=1, name='ANOTHER ITEM #1', order='3', price=3.0, sku='XYZ-789'),
              dict(qty=1, name='GIVEAWAY MYSTERY PRIZE #4', order='4', price=0.0)]
     to = ['To: buyer123', 'Jane Buyer', '1 Main St', 'Springfield, IL 62701']
-    frm = ['From: ' + (renderable(brand.shop_name) or 'your shop'),
+    shop = renderable(brand.shop_name) if brand else ''
+    frm = ['From: ' + (shop or 'your shop'),
            '2 Shop Rd', 'Townsville, CA 90001']
-    ps = PS_HEAD + (logo_prolog(brand.logo) if brand.logo is not None else "") \
-         + slip_ps(ship, group_items(items), to, frm, brand)[0]
+    ps = PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "") \
+         + slip_ps(ship, group_items(items), to, frm, brand, footer, prices)[0]
     with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
         f.write(ps); psfile = f.name
     try:
