@@ -230,19 +230,19 @@ def display_name(e):
 
 RE_GIVEAWAY = re.compile(r'^(\[[^\]]*\] )?(GIVEAWAY)\b', re.I)
 
-def name_ops(line):
+def name_ops(line, x=X_NAME):
     """A product-name line. A leading GIVEAWAY prints white on black so the
     packer can't miss it. The line is drawn as consecutive pieces at their
     exact widths, so it extracts as the very same text as one plain string."""
     m = RE_GIVEAWAY.match(line)
     if not m:
-        return [f"8.5 HB ({esc(line)}) {X_NAME} 0 L"]
+        return [f"8.5 HB ({esc(line)}) {x} 0 L"]
     pre, word, rest = m.group(1) or '', m.group(2), line[m.end():]
-    x = X_NAME + sw(pre, 8.5, True); w = sw(word, 8.5, True)
-    ops = [f"8.5 HB ({esc(pre)}) {X_NAME} 0 L"] if pre else []
-    ops += [f"{x - 1.5:.1f} -2 {w + 3:.1f} 9.5 rectfill",
-            f"1 setgray 8.5 HB ({esc(word)}) {x:.1f} 0 L 0 setgray"]
-    if rest: ops.append(f"8.5 HB ({esc(rest)}) {x + w:.1f} 0 L")
+    xp = x + sw(pre, 8.5, True); w = sw(word, 8.5, True)
+    ops = [f"8.5 HB ({esc(pre)}) {x} 0 L"] if pre else []
+    ops += [f"{xp - 1.5:.1f} -2 {w + 3:.1f} 9.5 rectfill",
+            f"1 setgray 8.5 HB ({esc(word)}) {xp:.1f} 0 L 0 setgray"]
+    if rest: ops.append(f"8.5 HB ({esc(rest)}) {xp + w:.1f} 0 L")
     return ops
 
 def build_rows(grouped, prices=True):
@@ -285,6 +285,25 @@ def build_rows(grouped, prices=True):
         blocks.append(b)
     return blocks
 
+# every PS page string re-declares these: gs pages are concatenated
+PS_PROLOG = ["/EncV ISOLatin1Encoding 256 array copy def",
+     "EncV 39 /quotesingle put",       # else code 39 draws a curly quote
+     "EncV 96 /grave put",
+     "EncV 45 /hyphen put",            # ISOLatin1 puts /minus here, which
+                                       # extracts as U+2212 and breaks ZIP+4
+     "EncV 173 /hyphen put",
+     "/reencode { findfont dup length dict begin"
+     " { 1 index /FID ne { def } { pop pop } ifelse } forall"
+     " /Encoding EncV def currentdict end definefont pop } def",
+     "/HelvB-L /Helvetica-Bold reencode",
+     "/Helv-L  /Helvetica reencode",
+     "/CourB-L /Courier-Bold reencode",
+     "/HB { /HelvB-L findfont exch scalefont setfont } def",
+     "/HV { /Helv-L findfont exch scalefont setfont } def",
+     "/CO { /CourB-L findfont exch scalefont setfont } def",
+     "/L { moveto show } def",
+     "/R { 3 -1 roll dup stringwidth pop 4 -1 roll exch sub 3 -1 roll moveto show } def"]
+
 def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
     blocks = build_rows(grouped) if prices else build_rows(grouped, False)
     n = sum(e['qty'] for e in grouped); tot = sum(e['subtotal'] for e in grouped)
@@ -301,23 +320,7 @@ def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
     pages.append(cur)
     out = []
     for pi, pg in enumerate(pages, 1):
-        s = ["/EncV ISOLatin1Encoding 256 array copy def",
-             "EncV 39 /quotesingle put",       # else code 39 draws a curly quote
-             "EncV 96 /grave put",
-             "EncV 45 /hyphen put",            # ISOLatin1 puts /minus here, which
-                                               # extracts as U+2212 and breaks ZIP+4
-             "EncV 173 /hyphen put",
-             "/reencode { findfont dup length dict begin"
-             " { 1 index /FID ne { def } { pop pop } ifelse } forall"
-             " /Encoding EncV def currentdict end definefont pop } def",
-             "/HelvB-L /Helvetica-Bold reencode",
-             "/Helv-L  /Helvetica reencode",
-             "/CourB-L /Courier-Bold reencode",
-             "/HB { /HelvB-L findfont exch scalefont setfont } def",
-             "/HV { /Helv-L findfont exch scalefont setfont } def",
-             "/CO { /CourB-L findfont exch scalefont setfont } def",
-             "/L { moveto show } def",
-             "/R { 3 -1 roll dup stringwidth pop 4 -1 roll exch sub 3 -1 roll moveto show } def"]
+        s = list(PS_PROLOG)
         A = s.append
         if brand:
             A("0 setgray"); s.extend(brand_ops(brand, pi, len(pages)))
@@ -492,6 +495,67 @@ def label_ps(im):
             + "\n".join(data[i:i+120] for i in range(0, len(data), 120))
             + "\ngrestore\nshowpage\n")
 
+# ------------------------------------------------------------------ pick list
+RE_PICK_HEAD = re.compile(r'^\s*Pick List \d+/\d+')
+
+def page_kind(text):
+    """'P' pick list, 'S' slip, 'B' label - judged by the first non-blank line."""
+    first = next((l for l in text.splitlines() if l.strip()), '')
+    if RE_PICK_HEAD.match(first): return 'P'
+    return 'S' if 'Packing Slip' in first else 'B'
+
+def pick_rows(items):
+    return sorted(({k: e[k] for k in ('product', 'sku', 'qty')} for e in group_items(items)),
+                  key=lambda r: (r['sku'] is None, (r['sku'] or '').upper(), r['product'].upper()))
+
+def _defuse(s):
+    return s.replace('Packing Slip', 'Packing-Slip')
+
+PICK_X = M + 40
+PICK_W = W - M - PICK_X
+
+def pick_ps(rows, src_name, nships):
+    nitems = sum(r['qty'] for r in rows)
+    blocks = []
+    for r in rows:
+        ls = wrap(_defuse(display_name(r)), PICK_W, 8.5, True)
+        ops = [f"0.6 setlinewidth {M} -1 7 7 rectstroke",
+               f"10 HB ({esc(str(r['qty']))}) {M + 34} 0 R", *name_ops(ls[0], x=PICK_X)]
+        b = [(12, ops)]
+        b += [(10, [f"8.5 HB ({esc(l)}) {PICK_X} 0 L"]) for l in ls[1:]]
+        blocks.append(b)
+    top1, top = H - 60, H - 50
+    pages, cur, y = [], [], top1
+    for b in blocks:
+        need = sum(h for h, _ in b) + 3
+        if y - need < 40 and cur:
+            pages.append(cur); cur = []; y = top
+        cur.append(b); y -= need
+    pages.append(cur)
+    out = []
+    for pi, pg in enumerate(pages, 1):
+        s = list(PS_PROLOG)
+        A = s.append
+        A(f"11 HB 0 setgray (Pick List {pi}/{len(pages)}) {M} {H-26} L")
+        A(f"0.8 setlinewidth {M} {H-33} moveto {W-M} {H-33} lineto stroke")
+        if pi == 1:
+            sub = f"{_defuse(src_name)} \u00b7 {nships} shipments \u00b7 {nitems} items"
+            A(f"7 HV ({esc(sub)}) {M} {H-45} L")
+        y = top1 if pi == 1 else top
+        for b in pg:
+            for h, ops in b:
+                A(f"gsave 0 {y:.1f} translate"); s.extend(ops); A("grestore")
+                y -= h
+            y -= 3
+        if pi == len(pages):
+            k = len(rows)
+            A(f"0.8 setlinewidth {M} {y:.1f} moveto {W-M} {y:.1f} lineto stroke")
+            tail = f"{k} product{'s' if k != 1 else ''} \u00b7 {nitems} item{'s' if nitems != 1 else ''}"
+            A(f"9 HB ({esc(tail)}) {M} {y-12:.1f} L")
+        A("showpage")
+        out.append("\n".join(s) + "\n")
+    return out
+
 # ---------------------------------------------------------------------- build
 PS_HEAD = f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"
 
@@ -500,6 +564,9 @@ def build(src, out, quiet=False, progress=None, brand=None, footer=None,
     raw, data = load(src)
     ps = [PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "")]
     nsl = nlb = 0
+    if pick_list:
+        ps += pick_ps(pick_rows([it for _, _, items in data for it in items]),
+                      os.path.basename(src), len(data))
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
