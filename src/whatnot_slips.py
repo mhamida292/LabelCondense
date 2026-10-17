@@ -509,7 +509,8 @@ def pick_rows(items):
                   key=lambda r: (r['sku'] is None, (r['sku'] or '').upper(), r['product'].upper()))
 
 def _defuse(s):
-    return s.replace('Packing Slip', 'Packing-Slip')
+    # any whitespace: pdftotext reads 'Packing  Slip' or a wrap as the marker too
+    return re.sub(r'Packing\s+Slip', 'Packing-Slip', s)
 
 PICK_X = M + 40
 PICK_W = W - M - PICK_X
@@ -756,15 +757,120 @@ def audit_units(a, tag, grouped, opage, prices=True):
                      f'{v["variant"]} ${v["price"]:.2f}')
     return units
 
-def kinds_detail(kinds):
+def kinds_detail(kinds, lead=''):
     """Point at where the slip/label pattern first breaks. Truncating the head
     just prints a screenful of correct 'SBSB...' and hides the one page that
-    matters."""
-    i = re.match(r'(?:S+B)*', kinds).end()
+    matters. `lead` is the pick-list prefix ('P+') when one is expected."""
+    m = re.match(lead + r'(?:S+B)*', kinds)
+    i = m.end() if m else 0
     if i >= len(kinds):
         return f'{len(kinds)} pages, ends mid-shipment: ...{kinds[-20:]}'
     return (f'page {i+1} unexpected {kinds[i]!r}: '
             f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
+
+# The auditor's own view of the pick list. Quantities come off the raw source
+# slip lines, not parse_shipment(): the renderer summed what the parser read,
+# so an audit that trusted the parser would pass its misreads.
+RE_SRC_QTY = re.compile(r'^\s*(\d+)\s{2,}.*?\s{2,}Order (\d+)\s', re.M)
+RE_PICK_ROW = re.compile(r'^\s*(\d+)\s+(\S.*?)\s*$')
+RE_PICK_NUM = re.compile(r'^\s*Pick List (\d+)/(\d+)')
+RE_PICK_SUB = re.compile(r'\u00b7 (\d+) shipments? \u00b7 (\d+) items?\s*$')
+RE_PICK_TAIL = re.compile(r'^\s*(\d+) products? \u00b7 (\d+) items?\s*$')
+
+def read_pick(pick_texts):
+    """-> ([(qty, text)], [(products, items)], [(n, m)], [(ships, items)]).
+    A row is a qty then its name; the lines under it, until the next row, are
+    the wrapped rest of the name. A wrapped line that happens to start with a
+    number ('2024 CARD BOX') is told from a new row by its indent: the qty is
+    right-aligned left of the name column, so a row starts further left."""
+    rows, tails, nums, subs = [], [], [], []
+    for t in pick_texts:
+        name_col = None                 # pdftotext sets the columns per page
+        lines = [ln for ln in t.split('\n') if ln.strip()]
+        if lines and (m := RE_PICK_NUM.match(lines[0])):    # the page heading
+            nums.append((int(m.group(1)), int(m.group(2)))); lines = lines[1:]
+        for ln in lines:
+            if (m := RE_PICK_TAIL.match(ln)):
+                tails.append((int(m.group(1)), int(m.group(2)))); continue
+            if not rows and (m := RE_PICK_SUB.search(ln)):
+                subs.append((int(m.group(1)), int(m.group(2)))); continue
+            indent = len(ln) - len(ln.lstrip())
+            m = RE_PICK_ROW.match(ln)
+            if m and (name_col is None or indent < name_col - 1):
+                rows.append([int(m.group(1)), m.group(2)]); name_col = m.start(2)
+            elif rows:
+                rows[-1][1] += ' ' + ln.strip()
+            else:
+                rows.append([None, ln.strip()])     # text before any row
+    return [(q, renderable(x)) for q, x in rows], tails, nums, subs
+
+def audit_pick(a, raw_src_pages, src_ships, pick_texts, src_name=''):
+    """Every pick row against the raw export: right product, right summed
+    quantity, nothing missing or invented, in SKU order, no money, no #N.
+    `src_name` is the export's file name, which the subtitle prints: it is the
+    user's text, so '$' or '#1' in it must not fail the money/#N checks."""
+    raw_qty, dup = {}, []
+    for p in raw_src_pages:
+        if 'Packing Slip' not in p:
+            continue
+        for q, order in RE_SRC_QTY.findall(p):
+            if order in raw_qty: dup.append(order)
+            raw_qty[order] = int(q)
+    items = [it for _, _, its in src_ships for it in its]
+    parsed = {it['order'] for it in items}
+    a.ok(not dup and set(raw_qty) == parsed, 'pick source orders',
+         f'dup={dup[:3]} missing={sorted(parsed - set(raw_qty))[:3]} '
+         f'extra={sorted(set(raw_qty) - parsed)[:3]}')
+
+    want = OrderedDict()            # (PRODUCT, sku) -> [display text, qty]
+    for it in items:
+        product = split_variant(it['name'])[0]
+        e = want.setdefault((product.upper(), it.get('sku')), [
+            renderable(_defuse(f"[{it['sku']}] {product}" if it.get('sku') else product)), 0])
+        e[1] += raw_qty.get(it['order'], 0)
+    order = sorted(want, key=lambda k: (k[1] is None, (k[1] or '').upper(), k[0]))
+    exp = [tuple(want[k]) for k in order]
+
+    rows, tails, nums, subs = read_pick(pick_texts)
+    texts = [x for _, x in rows]
+    for text, q in exp:
+        hits = [r for r in rows if r[1] == text]
+        a.ok(len(hits) == 1 and hits[0][0] == q, 'pick row',
+             f'{text[:40]!r} want {q}, found {[h[0] for h in hits] or "no row"}')
+    known = {t for t, _ in exp}
+    extra = [r for r in rows if r[1] not in known]
+    a.ok(not extra, 'pick no extra rows',
+         ', '.join(f'{q} {x[:30]!r}' for q, x in extra[:3]))
+    a.ok(texts == [t for t, _ in exp], 'pick row order',
+         next((f'row {i+1}: {g[:30]!r} vs {w[:30]!r}' for i, (g, (w, _)) in
+               enumerate(zip(texts, exp)) if g != w), f'{len(texts)} vs {len(exp)} rows'))
+
+    total = sum(q for _, q in exp)
+    a.ok(len(tails) == 1, 'pick totals line', f'{len(tails)} found')
+    if tails:
+        a.ok(tails[0][0] == len(exp) == len(rows), 'pick total products',
+             f'{tails[0][0]} printed, {len(rows)} rows, {len(exp)} expected')
+        a.ok(tails[0][1] == total, 'pick total items', f'{tails[0][1]} vs {total}')
+    a.ok(len(subs) == 1 and subs[0] == (len(src_ships), total), 'pick subtitle counts',
+         f'{subs} vs {(len(src_ships), total)}')
+    stated = [s.get('stated') for _, s, _ in src_ships]
+    if stated and all(stated):
+        a.ok(total == sum(n for n, _ in stated), 'pick items match source footers',
+             f'{total} vs {sum(n for n, _ in stated)}')
+
+    flat = renderable('\n'.join(pick_texts))
+    if renderable(_defuse(src_name)):
+        flat = flat.replace(renderable(_defuse(src_name)), ' ', 1)
+    a.ok('$' not in flat, 'pick no prices', (re.search(r'.{0,20}\$.{0,8}', flat) or [''])[0])
+    # A '#' inside a product's own name ('CARD #25 HOLO') prints; a variant
+    # number must not. Remove every expected name, then nothing #N may remain.
+    for t in sorted(known, key=len, reverse=True):
+        flat = flat.replace(t, ' ')
+    a.ok(re.search(r'#\s*\d', flat) is None, 'pick no variant numbers',
+         (re.search(r'.{0,20}#\s*\d', flat) or [''])[0])
+    m = len(pick_texts)
+    a.ok(nums == [(i, m) for i in range(1, m + 1)], 'pick page numbering',
+         f'{nums} on {m} pages')
 
 def verify(src, out, deep=False, progress=None, brand=None, footer=None,
            prices=True, pick_list=False):
@@ -784,13 +890,21 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
          f'{len(out_ships)} vs {len(src_ships)}')
     # A shipment is one or more slip pages followed by exactly one label. Dense
     # slips legitimately run to a second page, so the stride is not fixed at 2.
-    kinds = ''.join('S' if 'Packing Slip' in p else 'B' for p in out_pages)
-    a.ok(re.fullmatch(r'(?:S+B)+', kinds) is not None, 'slip/label grouping',
-         kinds_detail(kinds))
+    # Pick pages lead when asked for; anywhere else (or unasked) they break it.
+    kinds = ''.join(page_kind(p) for p in out_pages)
+    lead = 'P+' if pick_list else ''
+    a.ok(re.fullmatch(lead + r'(?:S+B)+', kinds) is not None, 'slip/label grouping',
+         kinds_detail(kinds, lead))
     a.ok(kinds.count('B') == len(src_ships), 'label count',
          f"{kinds.count('B')} vs {len(src_ships)} shipments")
-    a.ok(len(out_pages) == kinds.count('S') + kinds.count('B'), 'page count',
-         f"{len(out_pages)} vs {kinds.count('S')} slip + {kinds.count('B')} label")
+    a.ok(len(out_pages) == kinds.count('P') + kinds.count('S') + kinds.count('B'),
+         'page count',
+         f"{len(out_pages)} vs {kinds.count('P')} pick + {kinds.count('S')} slip"
+         f" + {kinds.count('B')} label")
+    if pick_list:
+        audit_pick(a, raw_s, src_ships,
+                   [p for p, k in zip(out_pages, kinds) if k == 'P'],
+                   os.path.basename(src))
 
     # ---- global item ledger
     src_orders, out_orders = {}, {}
