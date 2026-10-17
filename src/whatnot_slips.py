@@ -367,6 +367,18 @@ def brand_message_lines(brand):
     taken = brand.logo is not None or renderable(brand.shop_name)
     return wrap(msg, MSG_W if taken else W - 2 * M, MSG_SIZE)[:2]
 
+FOOT_SIZE = 8
+FOOT_LEAD = 10
+FOOT_W = W - 2 * M
+FOOT_BAND = 24.0                 # how far a footer lifts the bottom block
+
+def footer_lines(text):
+    """The footer as it will print: up to two lines of Helvetica regular."""
+    text = renderable(text)
+    if not text:
+        return []
+    return wrap(text, FOOT_W, FOOT_SIZE, bold=False)[:2]
+
 def brand_ops(brand, pi, npages):
     """Logo (or shop name) on the left, the message beside it, and
     'Packing Slip n/m' in the corner -- load() and verify() find slip pages
