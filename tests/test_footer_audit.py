@@ -61,3 +61,12 @@ def test_split_footer():
     assert ws.split_footer(body, ["Live", "Tues"]) == ("a\nb\n", True)
     assert ws.split_footer(body, ["Nope"]) == (body, False)
     assert ws.split_footer(body, []) == (body, True)
+
+
+def test_no_footer_adds_no_checks(tmp_path):
+    src, out = _src(tmp_path)
+    ws.build(src, out, quiet=True)
+    plain = ws.verify(src, out).checks
+    ws.build(src, out, quiet=True, footer="Hi")
+    pages = sum("Packing Slip" in p for p in ws.pdf_pages(out))
+    assert ws.verify(src, out, footer="Hi").checks == plain + pages

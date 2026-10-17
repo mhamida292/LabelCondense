@@ -349,7 +349,7 @@ def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
         A(f"7.5 HV ({esc(ship.get('dims',''))}) {W-M} {34+u} R")
         A(f"7 CO (#{esc(ship.get('track',''))}) {M} {22+u} L")
         A(f"7.5 HV ({esc(ship.get('weight',''))}) {W-M} {22+u} R")
-        if fl:
+        if fl:      # split_footer() relies on this being the lowest text on the page
             A(f"0.5 setlinewidth {M} 40 moveto {W-M} 40 lineto stroke")
             for k, ln in enumerate(fl):
                 A(f"{FOOT_SIZE} HV ({esc(ln)}) {(W - sw(ln, FOOT_SIZE)) / 2:.1f} {29 - FOOT_LEAD * k} L")
@@ -656,6 +656,8 @@ def split_footer(body, lines):
 
 def audit_footer(a, footer, found):
     """One check per slip page: `found` is each page's split_footer flag."""
+    if not footer_lines(footer or ""):
+        return          # no footer: record no checks, like audit_brand
     for i, ok in enumerate(found, 1):
         a.ok(ok, f'slip page {i} footer', (footer or '')[:40])
 
