@@ -245,13 +245,13 @@ def name_ops(line):
     if rest: ops.append(f"8.5 HB ({esc(rest)}) {x + w:.1f} 0 L")
     return ops
 
-def build_rows(grouped):
+def build_rows(grouped, prices=True):
     blocks = []
     for e in grouped:
         b, ls = [], wrap(display_name(e), NAME_W, 8.5, True)
         head = [f"9 HB ({esc(str(e['qty']))}) {X_QTY} 0 L",
-                *name_ops(ls[0]),
-                f"9 HB ({esc('$%.2f' % e['subtotal'])}) {X_SUB} 0 R"]
+                *name_ops(ls[0])]
+        if prices: head.append(f"9 HB ({esc('$%.2f' % e['subtotal'])}) {X_SUB} 0 R")
         inlined, num, bx = False, None, 0.0
         if len(e['variants']) == 1:
             # a lone unit keeps its # on the product row, so grouped sub-rows
@@ -271,10 +271,13 @@ def build_rows(grouped):
                 n2, pr = v['variant'] or 'no #', '$%.2f' % v['price']
                 x = VAR_X + 11
                 ops = [f"0.35 setgray {VAR_X:.1f} 1.6 3 3 rectfill 0 setgray",
-                       f"10.5 HB ({esc(n2)}) {x:.1f} 0 L",
-                       f"8.5 HB ({esc(pr)}) {X_SUB} 0 R"]
+                       f"10.5 HB ({esc(n2)}) {x:.1f} 0 L"]
                 x0 = x + sw(n2, 10.5, True) + 5
-                x1 = X_SUB - sw(pr, 8.5, True) - 5
+                if prices:
+                    ops.append(f"8.5 HB ({esc(pr)}) {X_SUB} 0 R")
+                    x1 = X_SUB - sw(pr, 8.5, True) - 5
+                else:
+                    x1 = X_SUB
                 dots = " ".join(f"{x0 + 3.6 * k:.1f} 2.2 0.7 0.7 rectfill"
                                 for k in range(max(0, int((x1 - x0) // 3.6))))
                 if dots: ops.append(f"0.6 setgray {dots} 0 setgray")
@@ -283,7 +286,7 @@ def build_rows(grouped):
     return blocks
 
 def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
-    blocks = build_rows(grouped)
+    blocks = build_rows(grouped) if prices else build_rows(grouped, False)
     n = sum(e['qty'] for e in grouped); tot = sum(e['subtotal'] for e in grouped)
     d = BAND if brand else 0         # a branded header pushes everything down
     fl = footer_lines(footer or "")
@@ -333,7 +336,7 @@ def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
         th = H - 100 - d
         A(f"0.5 setlinewidth {M} {th+8} moveto {W-M} {th+8} lineto stroke")
         A(f"7 HB (QTY) {X_QTY} {th} L  7 HB (Name & Description) {X_NAME} {th} L")
-        A(f"7 HB (Subtotal) {X_SUB} {th} R")
+        if prices: A(f"7 HB (Subtotal) {X_SUB} {th} R")
         A(f"0.5 setlinewidth {M} {th-5} moveto {W-M} {th-5} lineto stroke")
         y = TOP_Y
         for b in pg:
@@ -344,7 +347,7 @@ def slip_ps(ship, grouped, to, frm, brand=None, footer=None, prices=True):
         A(f"0.8 setlinewidth {M} {66+u} moveto {W-M} {66+u} lineto stroke")
         if pi == len(pages):
             A(f"9 HB ({n} Item{'s' if n != 1 else ''}) {M} {52+u} L")
-            A(f"9 HB ({esc('$%.2f' % tot)}) {W-M} {52+u} R")
+            if prices: A(f"9 HB ({esc('$%.2f' % tot)}) {W-M} {52+u} R")
         A(f"7.5 HV ({esc(ship.get('svc',''))}) {M} {34+u} L")
         A(f"7.5 HV ({esc(ship.get('dims',''))}) {W-M} {34+u} R")
         A(f"7 CO (#{esc(ship.get('track',''))}) {M} {22+u} L")
@@ -500,7 +503,7 @@ def build(src, out, quiet=False, progress=None, brand=None, footer=None,
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
-            sp = slip_ps(ship, group_items(items), to, frm, brand, footer)
+            sp = slip_ps(ship, group_items(items), to, frm, brand, footer, prices)
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
@@ -586,6 +589,9 @@ RE_SRC_SKU = re.compile(r'(?:^|\s{2})SKU (\S+)\s*$')
 RE_SRC_ORDER = re.compile(r'\bOrder (\d+)\b')
 # The qty is optional: pdftotext sometimes lifts a lone '#N' above its row and
 # leaves the '[SKU] name' text on a line of its own.
+# The auditor's own view of money on a slip printed without prices.
+RE_PRICE_ANY = re.compile(r'\$\s*\d')
+RE_OUT_COUNT = re.compile(r'^\s*(\d+) Items?\s*$', re.M)
 RE_OUT_SKU = re.compile(r'^\s*(?:\d+\s+)?\[([^\]\s]+)\]', re.M)
 
 def audit_skus(a, tag, src_text, sitems, grouped, out_text):
@@ -661,7 +667,7 @@ def audit_footer(a, footer, found):
     for i, ok in enumerate(found, 1):
         a.ok(ok, f'slip page {i} footer', (footer or '')[:40])
 
-def audit_units(a, tag, grouped, opage):
+def audit_units(a, tag, grouped, opage, prices=True):
     """Every unit: # present, price present, nothing invented. -> the units."""
     # a SKU is free seller text: '[AB#2]' must not pass for a missing '#2'
     bare = re.sub(r'\[[^\]\s]+\]', '', opage)
@@ -678,7 +684,7 @@ def audit_units(a, tag, grouped, opage):
                      f'{tag} variant', f'{e["product"]} {v["variant"]}')
             else:
                 a.ok('no #' in bare, f'{tag} unnumbered marker', e['product'])
-            if len(e['variants']) > 1:
+            if prices and len(e['variants']) > 1:
                 a.ok('$%.2f' % v['price'] in bare, f'{tag} unit price',
                      f'{v["variant"]} ${v["price"]:.2f}')
     return units
@@ -762,12 +768,18 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
 
         # totals
         n = sum(e['qty'] for e in gr); t = sum(e['subtotal'] for e in gr)
-        m = RE_TOTAL.search(opage) or re.search(r'(\d+) Items?\s+\$([\d,]+\.\d\d)', opage)
-        a.ok(m is not None, f'{tag} total line present')
-        if m:
-            a.ok(int(m.group(1)) == n, f'{tag} item count', f'{m.group(1)} vs {n}')
-            a.ok(abs(float(m.group(2).replace(',', '')) - t) < .005,
-                 f'{tag} total', f'{m.group(2)} vs {t:.2f}')
+        if prices:
+            m = RE_TOTAL.search(opage) or re.search(r'(\d+) Items?\s+\$([\d,]+\.\d\d)', opage)
+            a.ok(m is not None, f'{tag} total line present')
+            if m:
+                a.ok(int(m.group(1)) == n, f'{tag} item count', f'{m.group(1)} vs {n}')
+                a.ok(abs(float(m.group(2).replace(',', '')) - t) < .005,
+                     f'{tag} total', f'{m.group(2)} vs {t:.2f}')
+        else:
+            cm = RE_OUT_COUNT.findall(opage)
+            a.ok(len(cm) == 1, f'{tag} total line present', f'{len(cm)} count lines')
+            if len(cm) == 1:
+                a.ok(int(cm[0]) == n, f'{tag} item count', f'{cm[0]} vs {n}')
         if sship.get('stated'):
             a.ok(sship['stated'][0] == n, f'{tag} count matches source footer',
                  f'{sship["stated"][0]} vs {n}')
@@ -775,7 +787,7 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
                  f'{tag} total matches source footer',
                  f'{sship["stated"][1]} vs {t:.2f}')
 
-        for v in audit_units(a, tag, gr, opage):
+        for v in audit_units(a, tag, gr, opage, prices):
             out_orders[v['order']] = True
 
         stext = '\n'.join(raw_s[n - 1] for n in spages)
@@ -785,6 +797,12 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
     slip_nos = [n for n, p in enumerate(out_pages, 1) if 'Packing Slip' in p]
     for n in slip_nos: body_of(n)
     audit_footer(a, footer, [stripped[n][1] for n in slip_nos])
+    if not prices:
+        for n in slip_nos:
+            b = body_of(n)
+            leak = RE_PRICE_ANY.search(b) or 'Subtotal' in b
+            a.ok(not leak, f'no prices on slip page {n}',
+                 (RE_PRICE_ANY.search(b).group(0) if RE_PRICE_ANY.search(b) else 'Subtotal'))
 
     # ---- no order lost or invented
     a.ok(set(out_orders) == set(src_orders), 'order id set identical',
@@ -795,13 +813,20 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
     def money(ships):
         return round(sum(sum(i['price'] for i in items) for _, _, items in ships), 2)
     src_total = money(src_ships)
-    found = [m for n in slip_nos
-             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', body_of(n))] if m]
-    a.ok(len(found) == len(src_ships), 'one total line per shipment',
-         f'{len(found)} found vs {len(src_ships)} shipments')
-    out_total = round(sum(float(m.group(1).replace(',', '')) for m in found), 2)
-    a.ok(abs(src_total - out_total) < .005, 'grand total',
-         f'{src_total:.2f} vs {out_total:.2f}')
+    if not prices:
+        counts = [int(m) for n in slip_nos for m in RE_OUT_COUNT.findall(body_of(n))]
+        a.ok(len(counts) == len(src_ships), 'one count line per shipment',
+             f'{len(counts)} found vs {len(src_ships)} shipments')
+        want = sum(i['qty'] for _, _, items in src_ships for i in items)
+        a.ok(sum(counts) == want, 'item total', f'{sum(counts)} vs {want}')
+    else:
+        found = [m for n in slip_nos
+                 for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', body_of(n))] if m]
+        a.ok(len(found) == len(src_ships), 'one total line per shipment',
+             f'{len(found)} found vs {len(src_ships)} shipments')
+        out_total = round(sum(float(m.group(1).replace(',', '')) for m in found), 2)
+        a.ok(abs(src_total - out_total) < .005, 'grand total',
+             f'{src_total:.2f} vs {out_total:.2f}')
 
     # ---- label images, pixel-exact, correct pairing
     if deep:
