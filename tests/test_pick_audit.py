@@ -60,6 +60,33 @@ def test_an_extra_pick_row_fails(tmp_path, monkeypatch):
     assert any("pick" in f and "PHANTOM WIDGET" in f for f in _fails(a)), _fails(a)
 
 
+def test_swapped_pick_quantities_fail(tmp_path, monkeypatch):
+    def swap(rows):
+        rows = [dict(r) for r in rows]
+        assert rows[0]["qty"] != rows[2]["qty"]
+        rows[0]["qty"], rows[2]["qty"] = rows[2]["qty"], rows[0]["qty"]
+        return rows
+    a = _build_with(tmp_path, monkeypatch, "pick_rows", swap)
+    assert any("pick row" in f and "CRUNCHY LOBSTER" in f for f in _fails(a)), _fails(a)
+
+
+def test_a_duplicated_pick_row_fails(tmp_path, monkeypatch):
+    a = _build_with(tmp_path, monkeypatch, "pick_rows", lambda rows: rows + [rows[0]])
+    assert any("pick row" in f and "CRUNCHY LOBSTER" in f for f in _fails(a)), _fails(a)
+
+
+def test_a_dollar_sign_in_a_product_name_passes(tmp_path):
+    ships = synth.sample() + [synth.Ship("buyer_dollar", [
+        synth.Item(1, "$5 MYSTERY BOX #1", "1439000021", 5.00)],
+        "9400150106151234599992")]
+    src, out = _src(tmp_path, ships)
+    ws.build(src, out, quiet=True, pick_list=True)
+    pick = [p for p in ws.pdf_pages(out) if ws.page_kind(p) == 'P']
+    assert re.search(r"^\s*1 \$5 MYSTERY BOX\s*$", pick[0], re.M), pick[0]
+    a = ws.verify(src, out, pick_list=True)
+    assert a.fail == [], _fails(a)
+
+
 def test_pick_rows_out_of_order_fail(tmp_path, monkeypatch):
     a = _build_with(tmp_path, monkeypatch, "pick_rows", lambda rows: rows[::-1])
     assert any("pick row order" in f for f in _fails(a)), _fails(a)

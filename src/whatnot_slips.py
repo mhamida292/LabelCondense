@@ -861,11 +861,13 @@ def audit_pick(a, raw_src_pages, src_ships, pick_texts, src_name=''):
     flat = renderable('\n'.join(pick_texts))
     if renderable(_defuse(src_name)):
         flat = flat.replace(renderable(_defuse(src_name)), ' ', 1)
-    a.ok('$' not in flat, 'pick no prices', (re.search(r'.{0,20}\$.{0,8}', flat) or [''])[0])
-    # A '#' inside a product's own name ('CARD #25 HOLO') prints; a variant
-    # number must not. Remove every expected name, then nothing #N may remain.
+    # A '#' or '$' inside a product's own name ('CARD #25 HOLO', '$5 MYSTERY
+    # BOX') prints; a variant number or a price must not. Remove every
+    # expected name, then no #N and no $ amount may remain.
     for t in sorted(known, key=len, reverse=True):
         flat = flat.replace(t, ' ')
+    a.ok(RE_PRICE_ANY.search(flat) is None, 'pick no prices',
+         (re.search(r'.{0,20}\$\s*\d.{0,8}', flat) or [''])[0])
     a.ok(re.search(r'#\s*\d', flat) is None, 'pick no variant numbers',
          (re.search(r'.{0,20}#\s*\d', flat) or [''])[0])
     m = len(pick_texts)
@@ -979,8 +981,19 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
     for n in slip_nos: body_of(n)
     audit_footer(a, footer, [stripped[n][1] for n in slip_nos])
     if not prices:
+        # a '$' in a product's own name ('$5 MYSTERY BOX') is not a price: the
+        # page's expected name segments (as audit_units checks them) come off
+        # before the search
+        names = {}
+        for k, (_, _, sitems) in enumerate(src_ships):
+            segs = [renderable(sg) for e in group_items(sitems)
+                    for sg in wrap(display_name(e), NAME_W, 8.5, True)]
+            for n in (out_ships[k][0] if k < len(out_ships) else []):
+                names[n] = segs
         for n in slip_nos:
-            b = body_of(n)
+            b = renderable(body_of(n))
+            for sg in sorted(names.get(n, []), key=len, reverse=True):
+                if sg: b = b.replace(sg, ' ')
             leak = RE_PRICE_ANY.search(b) or 'Subtotal' in b
             a.ok(not leak, f'no prices on slip page {n}',
                  (RE_PRICE_ANY.search(b).group(0) if RE_PRICE_ANY.search(b) else 'Subtotal'))

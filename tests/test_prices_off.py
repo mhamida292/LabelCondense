@@ -62,3 +62,15 @@ def test_dense_two_page_slip_with_footer_and_no_prices(tmp_path):
     assert len(slips) == 2
     assert all("Thanks" in p and "$" not in p for p in slips)
     assert ws.verify(src, out, footer="Thanks", prices=False).fail == []
+
+
+def test_a_dollar_sign_in_a_product_name_is_not_a_price(tmp_path):
+    ships = synth.sample() + [synth.Ship("buyer_dollar", [
+        synth.Item(1, "$5 MYSTERY BOX #1", "1439000021", 5.00),
+        synth.Item(1, "$1 START LOT #2", "1439000022", 1.00)],
+        "9400150106151234599992")]
+    src, out = _src(tmp_path, ships)
+    ws.build(src, out, quiet=True, prices=False)
+    slips = [p for p in ws.pdf_pages(out) if "Packing Slip" in p]
+    assert "$5 MYSTERY BOX" in slips[-1]
+    assert ws.verify(src, out, prices=False).fail == []
