@@ -492,14 +492,15 @@ def label_ps(im):
 # ---------------------------------------------------------------------- build
 PS_HEAD = f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"
 
-def build(src, out, quiet=False, progress=None, brand=None):
+def build(src, out, quiet=False, progress=None, brand=None, footer=None,
+          prices=True, pick_list=False):
     raw, data = load(src)
     ps = [PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "")]
     nsl = nlb = 0
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
-            sp = slip_ps(ship, group_items(items), to, frm, brand)
+            sp = slip_ps(ship, group_items(items), to, frm, brand, footer)
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
@@ -637,6 +638,27 @@ def audit_brand(a, brand, slip_texts):
         a.ok(all(ln in flat for ln in lines), f'slip page {i} brand message',
              lines[0][:40])
 
+def split_footer(body, lines):
+    """Strip the footer's printed lines off the end of a slip body.
+    -> (body without them, whether they were there). The footer is the user's
+    free text, so no fact check may read it: '#1' or 'SKU ' in a message would
+    otherwise pass or fail them. Like audit_brand it reuses the renderer's
+    footer_lines on purpose (cosmetic, so a shared bug can at worst pass a
+    badly wrapped message)."""
+    if not lines:
+        return body, True
+    rows = body.split('\n')
+    idx = [i for i, ln in enumerate(rows) if ln.strip()]
+    n = len(lines)
+    if len(idx) < n or [renderable(rows[i]) for i in idx[-n:]] != [renderable(x) for x in lines]:
+        return body, False
+    return '\n'.join(rows[:idx[-n]]), True
+
+def audit_footer(a, footer, found):
+    """One check per slip page: `found` is each page's split_footer flag."""
+    for i, ok in enumerate(found, 1):
+        a.ok(ok, f'slip page {i} footer', (footer or '')[:40])
+
 def audit_units(a, tag, grouped, opage):
     """Every unit: # present, price present, nothing invented. -> the units."""
     # a SKU is free seller text: '[AB#2]' must not pass for a missing '#2'
@@ -669,8 +691,15 @@ def kinds_detail(kinds):
     return (f'page {i+1} unexpected {kinds[i]!r}: '
             f'...{kinds[max(0, i-16):i]}[{kinds[i]}]{kinds[i+1:i+17]}...')
 
-def verify(src, out, deep=False, progress=None, brand=None):
+def verify(src, out, deep=False, progress=None, brand=None, footer=None,
+           prices=True, pick_list=False):
     a = Audit()
+    flines = footer_lines(footer or "")
+    stripped = {}       # slip page number -> (footer-free body, footer found)
+    def body_of(n):
+        if n not in stripped:
+            stripped[n] = split_footer(slip_body(out_pages[n - 1]), flines)
+        return stripped[n][0]
     raw_s, src_ships = load(src)
     raw_o, out_ships = load(out)
     out_pages = pdf_pages(out)
@@ -703,7 +732,7 @@ def verify(src, out, deep=False, progress=None, brand=None):
         opages = out_ships[k][0] if k < len(out_ships) else []
         if not a.ok(bool(opages), f'{tag} slip present'):
             continue
-        opage = '\n'.join(slip_body(out_pages[n - 1]) for n in opages)
+        opage = '\n'.join(body_of(n) for n in opages)
 
         # every word of the source To:/From: header must reach the slip. This
         # deliberately ignores columns and lines, so it does not share
@@ -751,6 +780,9 @@ def verify(src, out, deep=False, progress=None, brand=None):
         audit_skus(a, tag, stext, sitems, gr, opage)
 
     audit_brand(a, brand, [p for p in out_pages if 'Packing Slip' in p])
+    slip_nos = [n for n, p in enumerate(out_pages, 1) if 'Packing Slip' in p]
+    for n in slip_nos: body_of(n)
+    audit_footer(a, footer, [stripped[n][1] for n in slip_nos])
 
     # ---- no order lost or invented
     a.ok(set(out_orders) == set(src_orders), 'order id set identical',
@@ -761,8 +793,8 @@ def verify(src, out, deep=False, progress=None, brand=None):
     def money(ships):
         return round(sum(sum(i['price'] for i in items) for _, _, items in ships), 2)
     src_total = money(src_ships)
-    found = [m for p in out_pages if 'Packing Slip' in p
-             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', slip_body(p))] if m]
+    found = [m for n in slip_nos
+             for m in [re.search(r'\d+ Items?\s+\$([\d,]+\.\d\d)', body_of(n))] if m]
     a.ok(len(found) == len(src_ships), 'one total line per shipment',
          f'{len(found)} found vs {len(src_ships)} shipments')
     out_total = round(sum(float(m.group(1).replace(',', '')) for m in found), 2)
