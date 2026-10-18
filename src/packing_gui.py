@@ -199,7 +199,22 @@ class App:
         self.message_box.grid(row=3, column=1, columnspan=2, sticky="we",
                               padx=(12, 0), pady=(10, 0))
 
-        foot = ttk.Frame(f); foot.grid(row=4, column=0, columnspan=3, sticky="we", pady=(18, 0))
+        self.footer_on = tk.BooleanVar(value=saved.footer_enabled)
+        footer_on = ttk.Checkbutton(f, text="Show footer on slips", variable=self.footer_on,
+                                    style="Switch.TCheckbutton")
+        footer_on.grid(row=4, column=0, columnspan=3, sticky="w", pady=(16, 0))
+        ttk.Label(f, text="Footer message").grid(row=5, column=0, sticky="nw", pady=(10, 0))
+        self.footer_box = tk.Text(f, height=2, width=30, wrap="word",
+                                  font="TkDefaultFont", **self._text_colors())
+        self.footer_box.insert("1.0", saved.footer[:branding.FOOTER_MAX])
+        self.footer_box.grid(row=5, column=1, columnspan=2, sticky="we",
+                             padx=(12, 0), pady=(10, 0))
+        self.footer_count = tk.StringVar(
+            value=f"{len(self.footer_box.get('1.0', 'end-1c'))} / {branding.FOOTER_MAX}")
+        ttk.Label(f, textvariable=self.footer_count, foreground=self.colors["muted"]
+                  ).grid(row=6, column=1, columnspan=2, sticky="e", pady=(2, 0))
+
+        foot = ttk.Frame(f); foot.grid(row=7, column=0, columnspan=3, sticky="we", pady=(18, 0))
         preview = ttk.Button(foot, text="Preview slip", command=self.preview_slip)
         preview.pack(side="left")
         self.brand_save_btn = ttk.Button(foot, text="Save", width=10, style="Accent.TButton",
@@ -209,7 +224,7 @@ class App:
         ttk.Label(foot, textvariable=self.brand_status,
                   foreground=self.colors["muted"]).pack(side="right", padx=10)
 
-        self.brand_widgets = [on, name, choose, remove, preview, self.brand_save_btn]
+        self.brand_widgets = [on, name, choose, remove, footer_on, preview, self.brand_save_btn]
         self._show_logo()
         # a field load() had to drop would otherwise just look blank
         if saved.notes:
@@ -220,6 +235,21 @@ class App:
         self.shop_name.trace_add("write", unsaved)
         self.message_box.edit_modified(False)
         self.message_box.bind("<<Modified>>", self._message_edited)
+        self.footer_on.trace_add("write", unsaved)
+        self.footer_box.edit_modified(False)
+        self.footer_box.bind("<<Modified>>", self._footer_edited)
+
+    def _footer_edited(self, _event):
+        if not self.footer_box.edit_modified():
+            return
+        self.footer_box.edit_modified(False)
+        text = self.footer_box.get("1.0", "end-1c")
+        if len(text) > branding.FOOTER_MAX:       # typed or pasted past the cap
+            self.footer_box.delete(f"1.0+{branding.FOOTER_MAX}c", "end")
+            text = self.footer_box.get("1.0", "end-1c")
+            self.footer_box.edit_modified(False)
+        self.footer_count.set(f"{len(text)} / {branding.FOOTER_MAX}")
+        self.brand_status.set("Not saved yet")
 
     def _message_edited(self, _event):
         # Tk raises <<Modified>> only when the flag flips, so clear it each time
@@ -233,6 +263,7 @@ class App:
         for w in self.brand_widgets:
             w.state(["disabled"] if locked else ["!disabled"])
         self.message_box.configure(state="disabled" if locked else "normal")
+        self.footer_box.configure(state="disabled" if locked else "normal")
 
     def _show_logo(self):
         if self.form_logo is None:
@@ -249,7 +280,9 @@ class App:
         return branding.Brand(enabled=self.brand_on.get(),
                               shop_name=self.shop_name.get().strip(),
                               message=self.message_box.get("1.0", "end-1c").strip(),
-                              logo=self.form_logo)
+                              logo=self.form_logo,
+                              footer_enabled=self.footer_on.get(),
+                              footer=self.footer_box.get("1.0", "end-1c").strip())
 
     def choose_logo(self, path=None):
         if path is None:
@@ -296,7 +329,9 @@ class App:
         with tempfile.TemporaryDirectory() as td:
             png = pathlib.Path(td) / "preview.png"
             try:
-                ws.preview_png(b, png)
+                ws.preview_png(b if b.enabled else None, png,
+                               footer=b.footer if b.footer_enabled else None,
+                               prices=self.show_prices.get())
             except (OSError, subprocess.CalledProcessError) as exc:
                 messagebox.showerror("Can't preview", f"The preview could not be drawn: {exc}")
                 return
@@ -315,6 +350,15 @@ class App:
                   foreground=self.colors["muted"]).pack()
         ttk.Button(card, text="Choose file…", width=16, style="Accent.TButton",
                    command=self.pick_file).pack(pady=(18, 4), ipady=3)
+        self.show_prices = tk.BooleanVar(value=recent.get_pref("show_prices", True))
+        self.pick_list = tk.BooleanVar(value=recent.get_pref("pick_list", False))
+        self.show_prices.trace_add(
+            "write", lambda *_: recent.set_pref("show_prices", self.show_prices.get()))
+        self.pick_list.trace_add(
+            "write", lambda *_: recent.set_pref("pick_list", self.pick_list.get()))
+        opts = ttk.Frame(card); opts.pack(pady=(6, 0))
+        ttk.Checkbutton(opts, text="Show prices", variable=self.show_prices).pack(anchor="w")
+        ttk.Checkbutton(opts, text="Add pick list", variable=self.pick_list).pack(anchor="w")
         # one click for the export that just landed in Downloads
         row = ttk.Frame(card); row.pack()
         self.recent_btn = ttk.Button(row, command=self.use_recent)
@@ -426,7 +470,9 @@ class App:
         self.log_lines = []
         self.dest = dest
         self.show("working")
-        job = jobmod.Job(self.src, dest, brand=branding.active())
+        job = jobmod.Job(self.src, dest, brand=branding.active(),
+                           footer=branding.active_footer(),
+                           prices=self.show_prices.get(), pick_list=self.pick_list.get())
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 
