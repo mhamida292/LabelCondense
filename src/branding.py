@@ -12,6 +12,7 @@ import whatnot_slips as ws
 DEFAULT_MESSAGE = "Thank you for shopping with us!"
 LOGO_PX = (450, 150)             # the 108 x 36 pt logo box at 300 dpi
 MESSAGE_LINES = 2
+MESSAGE_MAX = 60                 # about two lines beside the logo box
 FOOTER_MAX = 120
 FOOTER_LINES = 2
 PAGE_MARKERS = ("To:", "From:", "Packing Slip", "Pick List")
@@ -39,6 +40,8 @@ def message_fits(text):
     text = ws.renderable(text)
     if not text:
         return True
+    if len(text) > MESSAGE_MAX:
+        return False
     lines = ws.wrap(text, ws.MSG_W, ws.MSG_SIZE)
     return (len(lines) <= MESSAGE_LINES
             and all(ws.sw(ln, ws.MSG_SIZE) <= ws.MSG_W for ln in lines))

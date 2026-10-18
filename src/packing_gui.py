@@ -195,26 +195,30 @@ class App:
         ttk.Label(f, text="Message").grid(row=3, column=0, sticky="nw", pady=(10, 0))
         self.message_box = tk.Text(f, height=3, width=30, wrap="word",
                                    font="TkDefaultFont", **self._text_colors())
-        self.message_box.insert("1.0", saved.message)
+        self.message_box.insert("1.0", saved.message[:branding.MESSAGE_MAX])
         self.message_box.grid(row=3, column=1, columnspan=2, sticky="we",
                               padx=(12, 0), pady=(10, 0))
+        self.message_count = tk.StringVar(
+            value=f"{len(self.message_box.get('1.0', 'end-1c'))} / {branding.MESSAGE_MAX}")
+        ttk.Label(f, textvariable=self.message_count, foreground=self.colors["muted"]
+                  ).grid(row=4, column=1, columnspan=2, sticky="e", pady=(2, 0))
 
         self.footer_on = tk.BooleanVar(value=saved.footer_enabled)
         footer_on = ttk.Checkbutton(f, text="Show footer on slips", variable=self.footer_on,
                                     style="Switch.TCheckbutton")
-        footer_on.grid(row=4, column=0, columnspan=3, sticky="w", pady=(16, 0))
-        ttk.Label(f, text="Footer message").grid(row=5, column=0, sticky="nw", pady=(10, 0))
+        footer_on.grid(row=5, column=0, columnspan=3, sticky="w", pady=(16, 0))
+        ttk.Label(f, text="Footer message").grid(row=6, column=0, sticky="nw", pady=(10, 0))
         self.footer_box = tk.Text(f, height=2, width=30, wrap="word",
                                   font="TkDefaultFont", **self._text_colors())
         self.footer_box.insert("1.0", saved.footer[:branding.FOOTER_MAX])
-        self.footer_box.grid(row=5, column=1, columnspan=2, sticky="we",
+        self.footer_box.grid(row=6, column=1, columnspan=2, sticky="we",
                              padx=(12, 0), pady=(10, 0))
         self.footer_count = tk.StringVar(
             value=f"{len(self.footer_box.get('1.0', 'end-1c'))} / {branding.FOOTER_MAX}")
         ttk.Label(f, textvariable=self.footer_count, foreground=self.colors["muted"]
-                  ).grid(row=6, column=1, columnspan=2, sticky="e", pady=(2, 0))
+                  ).grid(row=7, column=1, columnspan=2, sticky="e", pady=(2, 0))
 
-        foot = ttk.Frame(f); foot.grid(row=7, column=0, columnspan=3, sticky="we", pady=(18, 0))
+        foot = ttk.Frame(f); foot.grid(row=8, column=0, columnspan=3, sticky="we", pady=(18, 0))
         preview = ttk.Button(foot, text="Preview slip", command=self.preview_slip)
         preview.pack(side="left")
         self.brand_save_btn = ttk.Button(foot, text="Save", width=10, style="Accent.TButton",
@@ -239,23 +243,24 @@ class App:
         self.footer_box.edit_modified(False)
         self.footer_box.bind("<<Modified>>", self._footer_edited)
 
-    def _footer_edited(self, _event):
-        if not self.footer_box.edit_modified():
+    def _capped_edit(self, box, cap, count):
+        # Tk raises <<Modified>> only when the flag flips, so clear it each time
+        if not box.edit_modified():
             return
-        self.footer_box.edit_modified(False)
-        text = self.footer_box.get("1.0", "end-1c")
-        if len(text) > branding.FOOTER_MAX:       # typed or pasted past the cap
-            self.footer_box.delete(f"1.0+{branding.FOOTER_MAX}c", "end")
-            text = self.footer_box.get("1.0", "end-1c")
-            self.footer_box.edit_modified(False)
-        self.footer_count.set(f"{len(text)} / {branding.FOOTER_MAX}")
+        box.edit_modified(False)
+        text = box.get("1.0", "end-1c")
+        if len(text) > cap:                       # typed or pasted past the cap
+            box.delete(f"1.0+{cap}c", "end")
+            text = box.get("1.0", "end-1c")
+            box.edit_modified(False)
+        count.set(f"{len(text)} / {cap}")
         self.brand_status.set("Not saved yet")
 
+    def _footer_edited(self, _event):
+        self._capped_edit(self.footer_box, branding.FOOTER_MAX, self.footer_count)
+
     def _message_edited(self, _event):
-        # Tk raises <<Modified>> only when the flag flips, so clear it each time
-        if self.message_box.edit_modified():
-            self.brand_status.set("Not saved yet")
-            self.message_box.edit_modified(False)
+        self._capped_edit(self.message_box, branding.MESSAGE_MAX, self.message_count)
 
     def _lock_branding(self, locked):
         """Settings are read once when a run starts; editing mid-run would

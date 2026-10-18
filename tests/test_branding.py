@@ -166,3 +166,9 @@ def test_a_decompression_bomb_logo_becomes_a_note(monkeypatch):
     monkeypatch.setattr(branding.Image, "open", boom)
     b = branding.load()
     assert b.logo is None and any("logo unreadable" in n for n in b.notes)
+
+def test_message_over_the_character_cap_does_not_fit():
+    narrow = "i " * 31                       # 62 chars, narrow enough for 2 lines
+    assert len(ws.wrap(narrow.strip(), ws.MSG_W, ws.MSG_SIZE)) <= 2
+    assert not branding.message_fits(narrow)
+    assert branding.message_fits("i " * 30)

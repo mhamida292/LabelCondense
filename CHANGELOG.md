@@ -13,6 +13,8 @@ Releases page. The release build refuses a tag that has no section here.
 - **Add pick list.** A switch on the Run tab that puts a pick list at the
   front of the PDF: each product once, with the quantity to pull. The
   quantities are checked against the original export.
+- **Message counter.** The header message box now counts as you type and
+  stops at 60 characters, like the footer's.
 
 ## v1.6.0
 

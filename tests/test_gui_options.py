@@ -32,6 +32,15 @@ def test_footer_counter_and_cap(app):
     assert len(app.footer_box.get("1.0", "end-1c")) == 120
     assert app.footer_count.get() == "120 / 120"
 
+def test_message_counter_and_cap(app):
+    app.message_box.delete("1.0", "end")
+    app.message_box.insert("1.0", "x" * 90); app.root.update()
+    assert len(app.message_box.get("1.0", "end-1c")) == 60
+    assert app.message_count.get() == "60 / 60"
+
+def test_message_counter_correct_after_construction(app):
+    assert app.message_count.get() == f"{len(branding.DEFAULT_MESSAGE)} / 60"
+
 def test_footer_counter_correct_after_construction():
     branding.save(branding.Brand(footer_enabled=True, footer="Thanks!"))
     root, a = _make()
