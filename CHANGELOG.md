@@ -3,6 +3,17 @@
 Each release's section becomes the "What's new" part of its notes on the
 Releases page. The release build refuses a tag that has no section here.
 
+## v1.7.0
+
+- **Footer message.** The Branding tab has a new Footer message: up to 2
+  lines and 120 characters at the bottom of every slip, with its own Show
+  footer on slips switch so it can be on without the header message.
+- **Show prices.** A switch on the Run tab. Turn it off to print slips with
+  no prices. The check confirms no dollar amount is left on any slip.
+- **Add pick list.** A switch on the Run tab that puts a pick list at the
+  front of the PDF: each product once, with the quantity to pull. The
+  quantities are checked against the original export.
+
 ## v1.6.0
 
 - **One-click exports.** When a Whatnot export has arrived in Downloads in
