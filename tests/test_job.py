@@ -16,12 +16,12 @@ def logs_in_tmp(tmp_path, monkeypatch):
 def test_success_writes_output_and_report(tmp_path, monkeypatch):
     src = tmp_path / "in.pdf"; src.write_text("x")
     dest = tmp_path / "out.pdf"
-    def fake_build(s, o, quiet=False, progress=None, brand=None):
+    def fake_build(s, o, quiet=False, progress=None, brand=None, **kw):
         pathlib.Path(o).write_text("pdf")
         if progress: progress(1, 1, "building slips")
         return (122, 123, 122)
     monkeypatch.setattr(J.ws, "build", fake_build)
-    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None: FakeAudit(0))
+    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None, **kw: FakeAudit(0))
     monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"] * 304)
 
     events = []
@@ -37,8 +37,8 @@ def test_failure_removes_output_and_keeps_report(tmp_path, monkeypatch):
     src = tmp_path / "in.pdf"; src.write_text("x")
     dest = tmp_path / "out.pdf"
     monkeypatch.setattr(J.ws, "build",
-        lambda s, o, quiet=False, progress=None, brand=None: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
-    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None: FakeAudit(14))
+        lambda s, o, quiet=False, progress=None, brand=None, **kw: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
+    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None, **kw: FakeAudit(14))
     monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
 
     res = J.Job(src, dest).run(lambda e: None)
@@ -86,8 +86,8 @@ def test_discard_failure_is_reported_not_swallowed(tmp_path, monkeypatch):
     src = tmp_path / "in.pdf"; src.write_text("x")
     dest = tmp_path / "out.pdf"
     monkeypatch.setattr(J.ws, "build",
-        lambda s, o, quiet=False, progress=None, brand=None: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
-    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None: FakeAudit(14))
+        lambda s, o, quiet=False, progress=None, brand=None, **kw: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
+    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None, **kw: FakeAudit(14))
     monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
 
     def raise_unlink(self, missing_ok=False):
@@ -123,8 +123,8 @@ def test_source_is_never_modified(tmp_path, monkeypatch):
     src = tmp_path / "in.pdf"; src.write_text("original")
     dest = tmp_path / "out.pdf"
     monkeypatch.setattr(J.ws, "build",
-        lambda s, o, quiet=False, progress=None, brand=None: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
-    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None: FakeAudit(0))
+        lambda s, o, quiet=False, progress=None, brand=None, **kw: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
+    monkeypatch.setattr(J.ws, "verify", lambda s, o, deep=False, progress=None, brand=None, **kw: FakeAudit(0))
     monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
     J.Job(src, dest).run(lambda e: None)
     assert src.read_text() == "original" and src.exists()
@@ -134,9 +134,9 @@ def test_brand_reaches_build_and_verify_and_notes_reach_the_log(tmp_path, monkey
     src = tmp_path / "in.pdf"; src.write_text("x")
     dest = tmp_path / "out.pdf"
     seen = {}
-    def fake_build(s, o, quiet=False, progress=None, brand=None):
+    def fake_build(s, o, quiet=False, progress=None, brand=None, **kw):
         seen["build"] = brand; pathlib.Path(o).write_text("pdf"); return (1, 1, 1)
-    def fake_verify(s, o, deep=False, progress=None, brand=None):
+    def fake_verify(s, o, deep=False, progress=None, brand=None, **kw):
         seen["verify"] = brand; return FakeAudit(0)
     monkeypatch.setattr(J.ws, "build", fake_build)
     monkeypatch.setattr(J.ws, "verify", fake_verify)
@@ -147,3 +147,17 @@ def test_brand_reaches_build_and_verify_and_notes_reach_the_log(tmp_path, monkey
         lambda e: lines.append(e["line"]) if e["kind"] == "log" else None)
     assert res.ok and seen == {"build": b, "verify": b}
     assert any("logo unreadable" in l for l in lines)
+
+def test_job_passes_footer_prices_and_pick_list(tmp_path, monkeypatch):
+    src = tmp_path / "in.pdf"; src.write_text("x")
+    seen = {}
+    def fake_build(s, o, quiet=False, progress=None, **kw):
+        seen["build"] = kw; pathlib.Path(o).write_text("pdf"); return (1, 1, 1)
+    def fake_verify(s, o, deep=False, progress=None, **kw):
+        seen["verify"] = kw; return FakeAudit(0)
+    monkeypatch.setattr(J.ws, "build", fake_build)
+    monkeypatch.setattr(J.ws, "verify", fake_verify)
+    monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
+    J.Job(src, tmp_path / "out.pdf", footer="Hi", prices=False, pick_list=True).run(lambda e: None)
+    want = {"brand": None, "footer": "Hi", "prices": False, "pick_list": True}
+    assert seen["build"] == want and seen["verify"] == want

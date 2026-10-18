@@ -2,6 +2,8 @@
 # Process every Whatnot export sitting in inbox/ and put print-ready PDFs in outbox/.
 #   ./run.sh            process everything in inbox/, full audit
 #   ./run.sh --fast     skip the per-label pixel check (~90s/file faster)
+#   ./run.sh --no-prices  print slips without prices
+#   ./run.sh --pick-list  put a pick list at the front of the PDF
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -9,11 +11,14 @@ TOOL=src
 IN=inbox; OUTBOX=outbox; ARCH=.packing/archive; LOGS=.packing/logs
 KEEP_DAYS=30                 # archives and logs older than this are pruned
 DEEP=--deep
+EXTRA=()
 
 for a in "$@"; do
   case "$a" in
     --fast) DEEP="" ;;
-    -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
+    --no-prices) EXTRA+=(--no-prices) ;;
+    --pick-list) EXTRA+=(--pick-list) ;;
+    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
 done
@@ -51,7 +56,7 @@ for src in "${files[@]}"; do
   echo "  $base"
   { echo "=== $(date '+%F %T')  $base -> $out"; } >> "$LOG"
   # stdout (the audit report) -> log; stderr (live progress) stays on screen
-  if python3 "$TOOL/whatnot_slips.py" build "$src" -o "$out" $DEEP >>"$LOG"; then
+  if python3 "$TOOL/whatnot_slips.py" build "$src" -o "$out" $DEEP ${EXTRA[@]+"${EXTRA[@]}"} >>"$LOG"; then
     pages=$(pdfinfo "$out" | awk '/^Pages:/{print $2}')
     checks=$(grep -a 'assertions run' "$LOG" | tail -1 | tr -dc 0-9)
     echo "     OK   -> $(basename "$out")  ${pages} pages, ${checks} checks passed"

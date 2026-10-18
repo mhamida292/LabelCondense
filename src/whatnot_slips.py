@@ -1066,6 +1066,10 @@ def main():
     b.add_argument('--no-verify', action='store_true')
     b.add_argument('--no-brand', action='store_true',
                    help='plain header, ignoring the saved branding')
+    b.add_argument('--no-prices', action='store_true',
+                   help='print slips without prices')
+    b.add_argument('--pick-list', action='store_true',
+                   help='put a pick list at the front of the PDF')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
@@ -1073,6 +1077,10 @@ def main():
                    help='skip the brand message check; otherwise verify expects '
                         'the currently saved message, so pass this to re-check '
                         'an output built without branding')
+    v.add_argument('--no-prices', action='store_true',
+                   help='print slips without prices')
+    v.add_argument('--pick-list', action='store_true',
+                   help='put a pick list at the front of the PDF')
     args = ap.parse_args()
 
     try:
@@ -1082,19 +1090,23 @@ def main():
         return 1
 
 def _run(args):
-    brand = None
+    brand = footer = None
+    prices, pick_list = not args.no_prices, args.pick_list
     if not args.no_brand:
         import branding            # lazily: branding imports this module
         brand = branding.active()
+        footer = branding.active_footer()
         for note in (brand.notes if brand else []):
             print(f"branding: {note}")
     if args.cmd == 'build':
-        n, nsl, nlb = build(args.src, args.out, brand=brand)
+        n, nsl, nlb = build(args.src, args.out, brand=brand, footer=footer,
+                           prices=prices, pick_list=pick_list)
         size = os.path.getsize(args.out)
         print(f"built {args.out}: {n} shipments, {nsl} slip pages, {nlb} labels, "
               f"{size/1e6:.2f} MB")
         if args.no_verify: return 0
-    a = verify(args.src, args.out, deep=args.deep, brand=brand)
+    a = verify(args.src, args.out, deep=args.deep, brand=brand,
+               footer=footer, prices=prices, pick_list=pick_list)
     return 0 if a.report('AUDIT') else 1
 
 if __name__ == '__main__':
