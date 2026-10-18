@@ -20,16 +20,24 @@ def _prefs():
     except (OSError, ValueError):
         return {}
 
-def remember_folder(path):
-    """Record the folder an export came from. Never raises: forgetting a
-    folder costs one extra click, not a run."""
-    d = _prefs(); d["export_dir"] = str(pathlib.Path(path).parent)
+def get_pref(key, default):
+    """A saved preference, or `default` when absent or of the wrong type."""
+    v = _prefs().get(key, default)
+    return v if isinstance(v, type(default)) else default
+
+def set_pref(key, value):
+    """Save one preference. Never raises: forgetting one costs a click, not a run."""
+    d = _prefs(); d[key] = value
     tmp = _prefs_path().with_suffix(".tmp")
     try:
         tmp.write_text(json.dumps(d), encoding="utf-8")
         os.replace(tmp, _prefs_path())
-    except OSError:
+    except (OSError, TypeError, ValueError):
         pass
+
+def remember_folder(path):
+    """Record the folder an export came from."""
+    set_pref("export_dir", str(pathlib.Path(path).parent))
 
 def downloads():
     return pathlib.Path.home() / "Downloads"

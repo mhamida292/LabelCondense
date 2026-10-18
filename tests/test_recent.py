@@ -94,3 +94,9 @@ def test_unfrozen_env_is_untouched(monkeypatch):
     monkeypatch.delattr(sys, "frozen", raising=False)
     monkeypatch.setenv("LD_LIBRARY_PATH", "/x")
     assert platform_bits.clean_env()["LD_LIBRARY_PATH"] == "/x"
+
+def test_remember_folder_keeps_other_prefs(tmp_path):
+    recent.set_pref("pick_list", True)
+    recent.remember_folder(tmp_path / "x.pdf")
+    assert recent.get_pref("pick_list", False) is True
+    assert recent.export_dir() == tmp_path

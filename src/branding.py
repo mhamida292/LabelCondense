@@ -12,6 +12,10 @@ import whatnot_slips as ws
 DEFAULT_MESSAGE = "Thank you for shopping with us!"
 LOGO_PX = (450, 150)             # the 108 x 36 pt logo box at 300 dpi
 MESSAGE_LINES = 2
+MESSAGE_MAX = 60                 # about two lines beside the logo box
+FOOTER_MAX = 120
+FOOTER_LINES = 2
+PAGE_MARKERS = ("To:", "From:", "Packing Slip", "Pick List")
 
 @dataclass
 class Brand:
@@ -19,6 +23,8 @@ class Brand:
     shop_name: str = ""
     message: str = DEFAULT_MESSAGE
     logo: Image.Image | None = None
+    footer_enabled: bool = False
+    footer: str = ""
     notes: list = field(default_factory=list)   # why something fell back
 
 def settings_dir():
@@ -34,9 +40,25 @@ def message_fits(text):
     text = ws.renderable(text)
     if not text:
         return True
+    if len(text) > MESSAGE_MAX:
+        return False
     lines = ws.wrap(text, ws.MSG_W, ws.MSG_SIZE)
     return (len(lines) <= MESSAGE_LINES
             and all(ws.sw(ln, ws.MSG_SIZE) <= ws.MSG_W for ln in lines))
+
+def footer_fits(text):
+    text = ws.renderable(text)
+    if not text:
+        return True
+    if len(text) > FOOTER_MAX:
+        return False
+    lines = ws.wrap(text, ws.FOOT_W, ws.FOOT_SIZE, bold=False)
+    return (len(lines) <= FOOTER_LINES
+            and all(ws.sw(ln, ws.FOOT_SIZE) <= ws.FOOT_W for ln in lines))
+
+def _footer_has_marker(text):
+    text = ws.renderable(text)
+    return any(m in text for m in PAGE_MARKERS)
 
 def name_fits(name):
     return ws.shop_name_size(name) is not None
@@ -55,6 +77,12 @@ def problems(b):
     if _has_anchor(b.shop_name) or _has_anchor(b.message):
         out.append("The shop name and message can't contain \"To:\" or \"From:\" "
                    "\u2014 the slip uses those words to find the address.")
+    if not footer_fits(b.footer):
+        out.append("The footer is too long: it must fit on 2 lines.")
+    if _footer_has_marker(b.footer):
+        out.append("The footer can't contain \"To:\", \"From:\", \"Packing Slip\" "
+                   "or \"Pick List\" \u2014 the app uses those words to find each "
+                   "part of the page.")
     return out
 
 def load():
@@ -66,7 +94,9 @@ def load():
             raise ValueError("not a settings object")
         for key, attr, kind in (("brand_enabled", "enabled", bool),
                                 ("shop_name", "shop_name", str),
-                                ("message", "message", str)):
+                                ("message", "message", str),
+                                ("footer_enabled", "footer_enabled", bool),
+                                ("footer", "footer", str)):
             if key not in raw:
                 continue
             if isinstance(raw[key], kind):
@@ -83,6 +113,12 @@ def load():
     if not name_fits(b.shop_name):
         b.notes.append("shop name too long to fit; not printed")
         b.shop_name = ""
+    if not footer_fits(b.footer):
+        b.notes.append("footer too long for 2 lines; not printed")
+        b.footer = ""
+    elif _footer_has_marker(b.footer):
+        b.notes.append("footer contains a page-marker word; not printed")
+        b.footer = ""
     for attr, what in (("shop_name", "shop name"), ("message", "message")):
         if _has_anchor(getattr(b, attr)):
             b.notes.append(f'branding {what} contains "To:" or "From:"; not printed')
@@ -101,6 +137,12 @@ def active():
     b = load()
     return b if b.enabled else None
 
+def active_footer():
+    """The footer to print, or None; independent of header branding."""
+    b = load()
+    text = ws.renderable(b.footer) if b.footer_enabled else ""
+    return text or None
+
 def _replace_atomically(path, write):
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     os.close(fd)
@@ -116,7 +158,8 @@ def save(b):
     if errs:
         raise ValueError(" ".join(errs))
     data = json.dumps({"brand_enabled": b.enabled, "shop_name": b.shop_name,
-                       "message": b.message}, indent=2)
+                       "message": b.message,
+                       "footer_enabled": b.footer_enabled, "footer": b.footer}, indent=2)
     _replace_atomically(_settings_path(),
                         lambda tmp: pathlib.Path(tmp).write_text(data, encoding="utf-8"))
     if b.logo is None:

@@ -21,7 +21,9 @@ Then: drag a Whatnot export onto the icon, or open the app and click
 **Choose file…**. Pick where to save, wait about 90 seconds while the progress
 bar runs, and print.
 
-To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them.
+To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them (that drops the footer too).
+
+The Branding tab also has a **Footer message** (2 lines, 120 characters) printed at the bottom of every slip; **Show footer on slips** turns it on or off separately from the header message. On the Run tab, untick **Show prices** to print slips without prices, and tick **Add pick list** to put a pick list (each product once, with the quantity to pull) at the front of the PDF.
 
 **If it says `DO NOT PRINT`, don't print it.** Nothing was saved. Open the
 **Logs** tab, click **Save report…**, and send that file over.
@@ -88,6 +90,8 @@ every subtotal produces 123.
 ```bash
 ./run.sh --fast   # skips the per-label pixel check, ~90s faster per file
                   # still runs ~3,300 of the checks
+./run.sh --no-prices  # print slips without prices
+./run.sh --pick-list  # put a pick list at the front of the PDF
 ```
 
 ### Upkeep
@@ -168,7 +172,28 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   the words `Packing Slip` on every page because that is how `load()` finds
   slip pages.
 
+- **The footer is stripped from the slip body before any fact check.** It is
+  free text at the bottom of the page, so a footer saying `#1` or `$1.00`
+  could pass a slip that lost those, or fail a good one. `split_footer()`
+  removes it first and `audit_footer()` checks it on its own. It may reuse the
+  renderer's wrap because it is cosmetic (same exception as the header
+  message). The footer must stay the lowest text on the page.
+- **Prices off is audited, not assumed.** With Show prices off, `verify()`
+  fails any `$` amount left on a slip body after the expected product names
+  are removed (a name like `$5 MYSTERY BOX` is part of the name, not a price).
+- **Pick-list quantities come from the raw `Order` lines.** `audit_pick()`
+  reads them with `RE_SRC_QTY` straight from the export, not from the parser
+  or `group_items`, and matches them to rows read back from the PDF with the
+  auditor's own regex. Each row must appear exactly once with its quantity.
+- **Pages are P, S or B.** `page_kind()` classifies a page by its first line
+  (pick list, slip, label). `Packing Slip` is defused to `Packing-Slip` on
+  pick pages (`_defuse`) because `load()` finds slip pages by that phrase and
+  would otherwise treat a pick page as a shipment.
+
 ### Known limitations
+
+- The parser cuts a product name at its first `#N`, so `CARD #25 HOLO #3`
+  groups as `CARD` with number #25.
 
 - Order IDs aren't printed — eleven 10-digit IDs don't fit a 4×6. They're
   preserved in the parsed data if you want them added.

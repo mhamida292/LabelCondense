@@ -30,11 +30,17 @@ class Result:
     message: str
 
 class Job:
-    def __init__(self, src, dest, deep=True, brand=None):
+    def __init__(self, src, dest, deep=True, brand=None, footer=None,
+                 prices=True, pick_list=False, notes=None):
         self.src = pathlib.Path(src)
         self.dest = pathlib.Path(dest)
         self.deep = deep
         self.brand = brand
+        self.footer = footer
+        self.prices = prices
+        self.pick_list = pick_list
+        # branding.load() notes; None -> whatever the brand carries
+        self.notes = notes
 
     def run(self, emit):
         lines = [f"=== {self.src.name} -> {self.dest.name}"]
@@ -46,15 +52,20 @@ class Job:
         def progress(done, total, stage):
             emit({"kind": "progress", "done": done, "total": total, "stage": stage})
 
-        for note in (self.brand.notes if self.brand else []):
+        for note in (self.notes if self.notes is not None
+                     else self.brand.notes if self.brand else []):
             log(f"branding: {note}")
 
         try:
             n, nsl, nlb = ws.build(str(self.src), str(self.dest), quiet=True,
-                                   progress=progress, brand=self.brand)
+                                   progress=progress, brand=self.brand,
+                                   footer=self.footer, prices=self.prices,
+                                   pick_list=self.pick_list)
             log(f"built {self.dest.name}: {n} shipments, {nsl} slip pages, {nlb} labels")
             audit = ws.verify(str(self.src), str(self.dest), deep=self.deep,
-                              progress=progress, brand=self.brand)
+                              progress=progress, brand=self.brand,
+                              footer=self.footer, prices=self.prices,
+                              pick_list=self.pick_list)
             report = audit.text("AUDIT")
             for line in report.splitlines():
                 log(line)
