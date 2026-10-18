@@ -161,3 +161,14 @@ def test_job_passes_footer_prices_and_pick_list(tmp_path, monkeypatch):
     J.Job(src, tmp_path / "out.pdf", footer="Hi", prices=False, pick_list=True).run(lambda e: None)
     want = {"brand": None, "footer": "Hi", "prices": False, "pick_list": True}
     assert seen["build"] == want and seen["verify"] == want
+
+
+def test_explicit_notes_reach_the_log_even_with_branding_off(tmp_path, monkeypatch):
+    src = tmp_path / "in.pdf"; src.write_text("x")
+    monkeypatch.setattr(J.ws, "build", lambda s, o, **kw: (pathlib.Path(o).write_text("pdf"), (1, 1, 1))[1])
+    monkeypatch.setattr(J.ws, "verify", lambda *a, **kw: FakeAudit(0))
+    monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
+    lines = []
+    J.Job(src, tmp_path / "out.pdf", notes=["footer too long for 2 lines; not printed"]).run(
+        lambda e: lines.append(e["line"]) if e["kind"] == "log" else None)
+    assert [l for l in lines if "footer too long" in l] == ["branding: footer too long for 2 lines; not printed"]

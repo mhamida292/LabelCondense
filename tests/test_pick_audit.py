@@ -178,7 +178,8 @@ CARD = [dict(qty=1, name="CARD #25 HOLO #3", order="1", price=1.0, sku=None),
 
 
 def test_a_hash_inside_a_product_name_prints_and_passes(tmp_path):
-    """Ruling: a '#' that is part of the product prints; only the variant
+    """Audit only: the rows are fed in directly, bypassing parse_shipment (a real
+    export cuts a name at its first #N). Ruling: a '#' that is part of the product prints; only the variant
     number is kept off the pick list."""
     a, pick = _audit_one(CARD, ws.pick_rows(CARD), tmp_path)
     assert re.search(r"^\s*3 CARD #25 HOLO\s*$", pick[0], re.M), pick[0]
@@ -250,3 +251,47 @@ def test_150_buyer_export_with_80_products(tmp_path):
     assert kinds.count("P") > 1 and kinds.count("B") == 150
     a = ws.verify(src, out, pick_list=True)
     assert a.fail == [], _fails(a)[:10]
+
+
+def test_wrapped_name_ending_in_a_bare_number_does_not_steal_the_next_order():
+    """'100' alone on a continuation line, then a blank line, is not a qty:
+    the qty and its 'Order N' share a line in the real export."""
+    raw = ("Packing Slip\n"
+           "1         POKEMON BULK LOT OF   Order 11    $5.00\n"
+           "          100\n\n"
+           "2         SECOND ITEM   Order 12    $1.00\n\n"
+           "3         THIRD ITEM   Order 13    $1.00\n")
+    assert ws.RE_SRC_QTY.findall(raw) == [("1", "11"), ("2", "12"), ("3", "13")]
+
+
+def test_pick_audit_survives_a_name_wrapped_to_a_bare_number(tmp_path):
+    items = [dict(qty=2, name="SECOND ITEM", order="12", price=1.0, sku=None),
+             dict(qty=3, name="THIRD ITEM", order="13", price=1.0, sku=None)]
+    raw = ("Packing Slip\n"
+           "2         SECOND ITEM   Order 12    $1.00\n"
+           "          POKEMON BULK LOT OF\n          100\n\n"
+           "3         THIRD ITEM   Order 13    $1.00\n")
+    pick = ws.pdf_pages(str(ps_to_pdf(ws.pick_ps(ws.pick_rows(items), "x.pdf", 1), tmp_path)))
+    a = ws.Audit()
+    ws.audit_pick(a, [raw], [([1], dict(stated=(5, "2.00")), items)], pick)
+    assert a.fail == [] and a.checks > 0, a.fail
+
+
+LONG_NAME = "Whatnot-Combined-Labels-Packing-Slips-12345678-1 (1).pdf"
+
+
+def test_pick_subtitle_always_fits_and_keeps_its_counts(tmp_path):
+    label = ws.pick_src_label(LONG_NAME)
+    sub = label + ws.PICK_SUB_TAIL.format(150, 412)
+    assert ws.sw(sub, 7) <= ws.W - 2 * ws.M
+    assert sub.endswith("150 shipments \u00b7 412 items") and label.endswith("...")
+    assert ws.pick_src_label("a.pdf") == "a"
+
+
+def test_long_export_name_builds_and_verifies_with_a_pick_list(tmp_path):
+    src = tmp_path / LONG_NAME
+    synth.make_export(src, synth.sample())
+    out = str(tmp_path / "out.pdf")
+    ws.build(str(src), out, quiet=True, pick_list=True)
+    a = ws.verify(str(src), out, pick_list=True)
+    assert a.fail == [] and a.checks > 0

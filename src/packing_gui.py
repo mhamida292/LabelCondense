@@ -472,7 +472,8 @@ class App:
         self.show("working")
         job = jobmod.Job(self.src, dest, brand=branding.active(),
                            footer=branding.active_footer(),
-                           prices=self.show_prices.get(), pick_list=self.pick_list.get())
+                           prices=self.show_prices.get(), pick_list=self.pick_list.get(),
+                           notes=branding.load().notes)
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 

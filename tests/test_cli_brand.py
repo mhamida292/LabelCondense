@@ -36,3 +36,10 @@ def test_verify_subcommand_takes_the_flag_too(monkeypatch):
     branding.save(branding.Brand(enabled=True))
     seen = run_cli(monkeypatch, "verify", "a.pdf", "b.pdf", "--no-brand")
     assert "build" not in seen and seen["verify"]["brand"] is None
+
+def test_a_dropped_footer_is_logged_even_with_header_branding_off(monkeypatch, tmp_path, capsys):
+    import json
+    path = branding._settings_path(); path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"footer_enabled": True, "footer": "x " * 200}))
+    run_cli(monkeypatch, "build", "in.pdf", "-o", str(tmp_path / "o.pdf"))
+    assert capsys.readouterr().out.count("branding: footer too long") == 1

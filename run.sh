@@ -18,7 +18,7 @@ for a in "$@"; do
     --fast) DEEP="" ;;
     --no-prices) EXTRA+=(--no-prices) ;;
     --pick-list) EXTRA+=(--pick-list) ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,${/^#/!q;p;}' "$0"; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
 done

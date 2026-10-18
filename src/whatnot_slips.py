@@ -515,6 +515,22 @@ def _defuse(s):
 PICK_X = M + 40
 PICK_W = W - M - PICK_X
 
+PICK_SUB_TAIL = " \u00b7 {} shipments \u00b7 {} items"
+
+def pick_src_label(src_name):
+    """The export's name as the pick-list subtitle prints it: no .pdf, defused,
+    and cut with '...' so the whole line fits at 7 pt however long the name is.
+    The audit reuses this on purpose (an exception to the independence rule,
+    like audit_brand): the name is cosmetic, so a bug shared with the renderer
+    can at worst pass an oddly shortened file name."""
+    name = _defuse(re.sub(r'(?i)\.pdf$', '', src_name))
+    room = W - 2 * M - sw(PICK_SUB_TAIL.format(9999, 99999), 7)
+    if sw(name, 7) <= room:
+        return name
+    while name and sw(name + '...', 7) > room:
+        name = name[:-1]
+    return name.rstrip() + '...'
+
 def pick_ps(rows, src_name, nships):
     nitems = sum(r['qty'] for r in rows)
     blocks = []
@@ -540,7 +556,7 @@ def pick_ps(rows, src_name, nships):
         A(f"11 HB 0 setgray (Pick List {pi}/{len(pages)}) {M} {H-26} L")
         A(f"0.8 setlinewidth {M} {H-33} moveto {W-M} {H-33} lineto stroke")
         if pi == 1:
-            sub = f"{_defuse(src_name)} \u00b7 {nships} shipments \u00b7 {nitems} items"
+            sub = pick_src_label(src_name) + PICK_SUB_TAIL.format(nships, nitems)
             A(f"7 HV ({esc(sub)}) {M} {H-45} L")
         y = top1 if pi == 1 else top
         for b in pg:
@@ -771,7 +787,9 @@ def kinds_detail(kinds, lead=''):
 # The auditor's own view of the pick list. Quantities come off the raw source
 # slip lines, not parse_shipment(): the renderer summed what the parser read,
 # so an audit that trusted the parser would pass its misreads.
-RE_SRC_QTY = re.compile(r'^\s*(\d+)\s{2,}.*?\s{2,}Order (\d+)\s', re.M)
+# [ \t], never \s: a qty and its 'Order N' share one line, and a wrapped name
+# whose continuation is a bare number ('100') must not reach the next item's.
+RE_SRC_QTY = re.compile(r'^[ \t]*(\d+)[ \t]{2,}.*?[ \t]{2,}Order (\d+)\s', re.M)
 RE_PICK_ROW = re.compile(r'^\s*(\d+)\s+(\S.*?)\s*$')
 RE_PICK_NUM = re.compile(r'^\s*Pick List (\d+)/(\d+)')
 RE_PICK_SUB = re.compile(r'\u00b7 (\d+) shipments? \u00b7 (\d+) items?\s*$')
@@ -859,8 +877,8 @@ def audit_pick(a, raw_src_pages, src_ships, pick_texts, src_name=''):
              f'{total} vs {sum(n for n, _ in stated)}')
 
     flat = renderable('\n'.join(pick_texts))
-    if renderable(_defuse(src_name)):
-        flat = flat.replace(renderable(_defuse(src_name)), ' ', 1)
+    if renderable(pick_src_label(src_name)):
+        flat = flat.replace(renderable(pick_src_label(src_name)), ' ', 1)
     # A '#' or '$' inside a product's own name ('CARD #25 HOLO', '$5 MYSTERY
     # BOX') prints; a variant number or a price must not. Remove every
     # expected name, then no #N and no $ amount may remain.
@@ -1078,9 +1096,9 @@ def main():
                         'the currently saved message, so pass this to re-check '
                         'an output built without branding')
     v.add_argument('--no-prices', action='store_true',
-                   help='print slips without prices')
+                   help='expect an output built with --no-prices',)
     v.add_argument('--pick-list', action='store_true',
-                   help='put a pick list at the front of the PDF')
+                   help='expect an output built with --pick-list')
     args = ap.parse_args()
 
     try:
@@ -1096,7 +1114,7 @@ def _run(args):
         import branding            # lazily: branding imports this module
         brand = branding.active()
         footer = branding.active_footer()
-        for note in (brand.notes if brand else []):
+        for note in branding.load().notes:   # also a footer dropped with the header off
             print(f"branding: {note}")
     if args.cmd == 'build':
         n, nsl, nlb = build(args.src, args.out, brand=brand, footer=footer,

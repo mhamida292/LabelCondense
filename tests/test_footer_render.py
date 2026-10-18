@@ -35,8 +35,8 @@ def test_nothing_prints_below_the_margin(tmp_path):
     from PIL import Image
     im = Image.open(png).convert("L")
     w, h = im.size
-    assert min(im.crop((0, h - 16, w, h)).getdata()) == 255
-    assert min(im.crop((0, h - 40, w, h - 16)).getdata()) < 128   # footer is there
+    assert im.crop((0, h - 16, w, h)).getextrema()[0] == 255
+    assert im.crop((0, h - 40, w, h - 16)).getextrema()[0] < 128   # footer is there
 
 def test_preview_shows_the_footer_without_branding(tmp_path):
     ws.preview_png(None, tmp_path / "p.png", footer="Thanks")

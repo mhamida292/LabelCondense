@@ -21,7 +21,7 @@ Then: drag a Whatnot export onto the icon, or open the app and click
 **Choose file…**. Pick where to save, wait about 90 seconds while the progress
 bar runs, and print.
 
-To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them.
+To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them (that drops the footer too).
 
 The Branding tab also has a **Footer message** (2 lines, 120 characters) printed at the bottom of every slip; **Show footer on slips** turns it on or off separately from the header message. On the Run tab, untick **Show prices** to print slips without prices, and tick **Add pick list** to put a pick list (each product once, with the quantity to pull) at the front of the PDF.
 
