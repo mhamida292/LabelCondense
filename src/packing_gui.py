@@ -47,7 +47,7 @@ class App:
         self.run_btn = tab_btn("Run", "run")
         self.logs_btn = tab_btn("Logs", "logs")
         self.brand_btn = tab_btn("Branding", "branding")
-        self.tab_btns = {"run": self.run_btn, "logs": self.logs_btn, "branding": self.brand_btn}
+        self.tab_btns = {"run": self.run_btn, "branding": self.brand_btn, "logs": self.logs_btn}
         for b in self.tab_btns.values():
             b.pack(side="left", padx=(0, 6))
         self.run_btn.state(["selected"])
