@@ -51,9 +51,10 @@ for src in "${files[@]}"; do
     skip=$((skip+1)); continue
   fi
 
-  # pick a free name in outbox
-  n=1; out="$OUTBOX/$STAMP-slips.pdf"
-  while [ -e "$out" ]; do n=$((n+1)); out="$OUTBOX/$STAMP-slips-$n.pdf"; done
+  # pick a free name in outbox, tagged with the platform when it is known
+  tag=$(python3 "$TOOL/whatnot_slips.py" detect "$src" 2>/dev/null) && tag="-$tag" || tag=""
+  n=1; out="$OUTBOX/$STAMP$tag-slips.pdf"
+  while [ -e "$out" ]; do n=$((n+1)); out="$OUTBOX/$STAMP$tag-slips-$n.pdf"; done
 
   echo "  $base"
   { echo "=== $(date '+%F %T')  $base -> $out"; } >> "$LOG"

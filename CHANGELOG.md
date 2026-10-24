@@ -18,6 +18,9 @@ Releases page. The release build refuses a tag that has no section here.
   the same.
 - TikTok labels are cut out of their A6 page and scaled evenly to 4×6, so
   the barcode is never stretched.
+- **The platform is in the file name.** The suggested name is now
+  `2026-10-24-tiktok-slips.pdf` or `2026-10-24-whatnot-slips.pdf`, in the app
+  and in `./run.sh`.
 
 ## v1.7.0
 

@@ -36,6 +36,13 @@ def test_cli_uses_the_detected_platform(monkeypatch, tmp_path, capsys):
     assert ws.main() == 0
     assert "tt" in seen and "detected: TikTok Shop" in capsys.readouterr().out
 
+def test_detect_subcommand_prints_the_platform(monkeypatch, tmp_path, capsys):
+    import sys, tiktok_synth, whatnot_slips as ws
+    src = tiktok_synth.make_export(tmp_path / "t.pdf", tiktok_synth.sample()[:1])
+    monkeypatch.setattr(sys, "argv", ["whatnot_slips.py", "detect", str(src)])
+    assert ws.main() == 0
+    assert capsys.readouterr().out.strip() == "tiktok"
+
 def test_verify_subcommand_takes_the_flags(monkeypatch):
     seen = run_cli(monkeypatch, "verify", "a.pdf", "b.pdf", "--no-prices", "--pick-list")
     assert (seen["verify"]["prices"], seen["verify"]["pick_list"]) == (False, True)

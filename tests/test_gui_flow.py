@@ -22,6 +22,22 @@ def app(tmp_path, monkeypatch):
 def test_default_name_is_dated(app):
     assert app.default_name() == dt.date.today().strftime("%Y-%m-%d-slips.pdf")
 
+def test_default_name_carries_the_platform(app):
+    assert app.default_name("tiktok") == dt.date.today().strftime("%Y-%m-%d-tiktok-slips.pdf")
+
+def test_save_dialog_suggests_the_detected_platform(app, tmp_path, monkeypatch):
+    import packing_gui, tiktok_synth
+    src = tiktok_synth.make_export(tmp_path / "in.pdf", tiktok_synth.sample()[:1])
+    offered = []
+    monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename",
+                        lambda **kw: (offered.append(kw.get("initialfile")), "")[1])
+    app.pick_file(str(src))
+    assert offered == [dt.date.today().strftime("%Y-%m-%d-tiktok-slips.pdf")]
+
+def test_an_unrecognised_file_still_gets_a_name(app, tmp_path):
+    app.src = tmp_path / "missing.pdf"
+    assert app.detect_src() is None
+
 def test_cancelling_save_returns_to_idle(app, tmp_path, monkeypatch):
     import packing_gui
     monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename", lambda **kw: "")

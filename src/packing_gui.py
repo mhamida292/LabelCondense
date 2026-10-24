@@ -9,6 +9,7 @@ import dialogs
 import job as jobmod
 import logstore
 import platform_bits
+import platforms
 import recent
 import theme
 import whatnot_slips as ws
@@ -450,17 +451,28 @@ class App:
         ttk.Button(row, text="Do another", command=self.reset).pack(side="left", padx=5)
 
     # ----------------------------------------------------------------- run
-    def default_name(self):
-        return dt.date.today().strftime("%Y-%m-%d-slips.pdf")
+    def default_name(self, kind=None):
+        """2026-10-24-tiktok-slips.pdf; without a known platform, no tag."""
+        tag = f"-{kind}" if kind else ""
+        return dt.date.today().strftime(f"%Y-%m-%d{tag}-slips.pdf")
+
+    def detect_src(self):
+        """'whatnot' or 'tiktok' for the chosen export, or None. A file that is
+        neither still gets a name: the run itself says what is wrong with it."""
+        try:
+            return platforms.detect(str(self.src)) if self.src else None
+        except Exception:
+            return None
 
     def ask_destination(self):
         """Ask until we get somewhere writable, or the user gives up. Checking
         now costs a second; checking after the build costs ninety."""
+        name = self.default_name(self.detect_src())
         while True:
             # beside the export, which is where the user just was
             folder = self.src.parent if self.src else recent.export_dir()
             dest = dialogs.ask_save(self.root, "Save print-ready PDF as…", folder,
-                                    self.default_name(), [("PDF files", "*.pdf")], ".pdf")
+                                    name, [("PDF files", "*.pdf")], ".pdf")
             if not dest:
                 return None               # cancelled — costs nothing
             d = pathlib.Path(dest)

@@ -1107,6 +1107,8 @@ def main():
                    help='put a pick list at the front of the PDF')
     b.add_argument('--no-condense', action='store_true',
                    help='one slip row per source line; repeats are not grouped')
+    d = sub.add_parser('detect', help="print the export's platform: whatnot or tiktok")
+    d.add_argument('src')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
@@ -1130,6 +1132,9 @@ def main():
 
 def _run(args):
     import platforms               # lazily: platforms imports this module
+    if args.cmd == 'detect':
+        print(platforms.detect(args.src))
+        return 0
     brand = footer = None
     prices, pick_list, condense = not args.no_prices, args.pick_list, not args.no_condense
     kind = platforms.detect(args.src)

@@ -63,9 +63,9 @@ need to open it. Press Ctrl+H in Dolphin if you want to see it.)
 Found 2 file(s) in inbox/
 
   export-morning.pdf
-     OK   -> 2026-09-09-slips.pdf    304 pages, 3743 checks passed
+     OK   -> 2026-09-09-whatnot-slips.pdf    304 pages, 3743 checks passed
   export-evening.pdf
-     OK   -> 2026-09-09-slips-2.pdf  304 pages, 3743 checks passed
+     OK   -> 2026-09-09-whatnot-slips-2.pdf  304 pages, 3743 checks passed
 
 Done: 2 ready to print in outbox/
 ```
@@ -73,7 +73,8 @@ Done: 2 ready to print in outbox/
 ### Several files a day
 
 Drop in as many as you like — each is processed separately and named
-`YYYY-MM-DD-slips.pdf`, then `-2`, `-3`, and so on in the order processed.
+`YYYY-MM-DD-whatnot-slips.pdf` (or `-tiktok-`), then `-2`, `-3`, and so on in
+the order processed.
 Nothing overwrites anything, on the same day or across days.
 
 ### The one rule
