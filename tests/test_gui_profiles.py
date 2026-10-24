@@ -94,3 +94,20 @@ def test_a_run_uses_the_picked_profile(app, monkeypatch, tmp_path):
     assert seen["brand"].shop_name == "Knives" and seen["footer"] == "See you Friday"
     assert seen["profile"] == "Knife Night"
     app.root.after_cancel(app._after_id)
+
+
+def test_logo_prompt_uses_the_shop_name_and_the_box_size():
+    p = branding.logo_prompt("Blades Plus")
+    assert '"Blades Plus"' in p and "1350 x 450" in p and "black" in p
+    assert "[your shop name]" in branding.logo_prompt("")
+    w, h = branding.PROMPT_PX
+    assert w * branding.LOGO_PX[1] == h * branding.LOGO_PX[0]   # same shape as the box
+
+
+def test_logo_prompt_window_and_copy(app):
+    app.shop_name.set("Knife Night")
+    app.show_logo_prompt()
+    assert "Knife Night" in app.prompt_win.winfo_children()[0].winfo_children()[1].get("1.0", "end")
+    app.copy_logo_prompt()
+    assert app.root.clipboard_get() == branding.logo_prompt("Knife Night")
+    app.prompt_win.destroy()

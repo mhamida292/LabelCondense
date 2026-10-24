@@ -204,7 +204,9 @@ class App:
         btns = ttk.Frame(f); btns.grid(row=2, column=2, sticky="ne", pady=(10, 0))
         choose = ttk.Button(btns, text="Choose…", command=self.choose_logo)
         remove = ttk.Button(btns, text="Remove", command=self.remove_logo)
+        prompt = ttk.Button(btns, text="AI prompt…", command=self.show_logo_prompt)
         choose.pack(fill="x"); remove.pack(fill="x", pady=(4, 0))
+        prompt.pack(fill="x", pady=(4, 0))
 
         ttk.Label(f, text="Message").grid(row=3, column=0, sticky="nw", pady=(10, 0))
         self.message_box = tk.Text(f, height=3, width=30, wrap="word",
@@ -401,6 +403,37 @@ class App:
                               logo=self.form_logo,
                               footer_enabled=self.footer_on.get(),
                               footer=self.footer_box.get("1.0", "end-1c").strip())
+
+    def logo_prompt_text(self):
+        return branding.logo_prompt(self.shop_name.get())
+
+    def copy_logo_prompt(self):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.logo_prompt_text())
+        self.root.update()                  # hand the clipboard to the system
+
+    def show_logo_prompt(self):
+        """A prompt to paste into an AI image tool, sized for the logo box."""
+        win = tk.Toplevel(self.root); win.title("Logo prompt")
+        win.transient(self.root)
+        f = ttk.Frame(win, padding=14); f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Paste this into an AI image tool (ChatGPT, Gemini, Canva…), "
+                          "then choose the image it makes as your logo.",
+                  wraplength=440, justify="left").pack(anchor="w")
+        box = tk.Text(f, height=14, width=60, wrap="word", font="TkDefaultFont",
+                      **self._text_colors())
+        box.insert("1.0", self.logo_prompt_text())
+        box.configure(state="disabled")     # selectable, not editable
+        box.pack(fill="both", expand=True, pady=(8, 8))
+        row = ttk.Frame(f); row.pack(fill="x")
+        copied = tk.StringVar(value="")
+        def copy():
+            self.copy_logo_prompt(); copied.set("Copied")
+        ttk.Button(row, text="Copy", style="Accent.TButton", command=copy).pack(side="right")
+        ttk.Label(row, textvariable=copied, foreground=self.colors["muted"]).pack(
+            side="right", padx=8)
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="left")
+        self.prompt_win = win
 
     def choose_logo(self, path=None):
         if path is None:

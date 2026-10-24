@@ -293,6 +293,30 @@ def _write(pid, b, name):
     else:
         _replace_atomically(_logo_path(pid), lambda tmp: b.logo.save(tmp, "PNG"))
 
+# What the logo box needs, in words an image generator follows. Sizes come
+# from the box itself: 108 x 36 pt (1.5 x 0.5 in, 3:1) printed by a 203 dpi
+# thermal head, so a stroke under ~3 dots or text under ~1/8 in is lost.
+PROMPT_PX = (1350, 450)          # 3:1 at 900 px/in: a 15 px stroke is ~3 dots
+
+def logo_prompt(shop_name=""):
+    """A copy-pastable prompt for an AI image tool that yields a logo the
+    slip prints well."""
+    name = ws.renderable(shop_name) or "[your shop name]"
+    w, h = PROMPT_PX
+    return (
+        f'Design a logo for a shop called "{name}". It will be printed on '
+        f'4x6 inch shipping labels by a black-and-white thermal printer, in a '
+        f'space 1.5 inches wide and 0.5 inches tall.\n\n'
+        f'- Canvas: {w} x {h} pixels (a wide 3:1 rectangle), plain white background.\n'
+        f'- Pure black on white only: no grey, colour, gradients, shadows, '
+        f'textures or transparency.\n'
+        f'- Bold, simple shapes. Every line and gap at least 15 pixels thick; '
+        f'no fine detail, hairlines or small text.\n'
+        f'- If the shop name is included, use a heavy, simple sans-serif at '
+        f'least 120 pixels tall, and keep it to one or two short lines.\n'
+        f'- Fill the canvas with a small margin; no border or frame around it.\n'
+        f'- Deliver it as a PNG at exactly {w} x {h} pixels.')
+
 def import_logo(path):
     """Any image Pillow reads, turned into exactly what will print:
     transparency flattened onto white, trimmed to its ink, fitted to the logo

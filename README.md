@@ -28,6 +28,8 @@ bar runs, and print.
 
 To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them (that drops the footer too).
 
+No logo yet? Click **AI prompt…** under the logo buttons for a prompt to paste into an AI image tool. It's filled in with the shop name and asks for exactly what prints well: 1350×450 px (the 3:1 logo space), pure black on white, strokes thick enough for a thermal head.
+
 Selling several brands? Make a **profile** for each: on the Branding tab, click **New…**, name it, and fill it in (it starts as a copy of the profile you were on). Pick the profile for a run from the **Branding** dropdown on the Run tab; the app remembers the last one. `./run.sh --profile="Blades Plus"` picks one by name; without it, `./run.sh` uses the one last picked in the app.
 
 The Branding tab also has a **Footer message** (2 lines, 120 characters) printed at the bottom of every slip; **Show footer on slips** turns it on or off separately from the header message. On the Run tab, untick **Show prices** to print slips without prices, and tick **Add pick list** to put a pick list (each product once, with the quantity to pull) at the front of the PDF. Untick **Condense repeated items** to give every item its own row instead of grouping repeats.

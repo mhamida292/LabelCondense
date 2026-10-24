@@ -22,6 +22,10 @@ Releases page. The release build refuses a tag that has no section here.
   for each brand, and pick one from the new Branding dropdown on the Run tab.
   The Branding tab can add, rename and delete profiles. Your current branding
   becomes the Default profile. `./run.sh --profile=NAME` picks one by name.
+- **Logo prompt.** The Branding tab's AI prompt… button gives a copy-ready
+  prompt for an AI image tool, with your shop name, asking for a logo the
+  right shape (3:1) and in pure black and white with lines thick enough to
+  print.
 - **The platform is in the file name.** The suggested name is now
   `2026-10-24-tiktok-slips.pdf` or `2026-10-24-whatnot-slips.pdf`, in the app
   and in `./run.sh`.
