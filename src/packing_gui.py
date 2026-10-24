@@ -1,6 +1,6 @@
 """The window. One state at a time, three tabs, nothing else."""
 import base64, datetime as dt, io, os, pathlib, queue, subprocess, sys, tempfile, threading, tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from PIL import Image
 
@@ -9,6 +9,7 @@ import dialogs
 import job as jobmod
 import logstore
 import platform_bits
+import platforms
 import recent
 import theme
 import whatnot_slips as ws
@@ -46,7 +47,7 @@ class App:
         self.run_btn = tab_btn("Run", "run")
         self.logs_btn = tab_btn("Logs", "logs")
         self.brand_btn = tab_btn("Branding", "branding")
-        self.tab_btns = {"run": self.run_btn, "logs": self.logs_btn, "branding": self.brand_btn}
+        self.tab_btns = {"run": self.run_btn, "branding": self.brand_btn, "logs": self.logs_btn}
         for b in self.tab_btns.values():
             b.pack(side="left", padx=(0, 6))
         self.run_btn.state(["selected"])
@@ -64,6 +65,7 @@ class App:
         self._build_failed(self.frames["failed"])
 
         self._build_branding(self.panes["branding"])
+        self.refresh_profiles()
         self.panes["run"].pack(fill="both", expand=True)
         self.show("idle")
 
@@ -170,6 +172,18 @@ class App:
     def _build_branding(self, pane):
         saved = branding.load()
         self.form_logo = saved.logo
+        pf = ttk.Frame(pane); pf.pack(fill="x", padx=18, pady=(16, 0))
+        ttk.Label(pf, text="Profile").pack(side="left")
+        self.profile_pick = ttk.Combobox(pf, state="readonly", width=24, values=[])
+        self.profile_pick.pack(side="left", padx=(12, 8))
+        self.profile_pick.bind("<<ComboboxSelected>>",
+                               lambda e: self._picked_profile(self.profile_pick))
+        new = ttk.Button(pf, text="New…", command=self.new_profile)
+        self.rename_btn = ttk.Button(pf, text="Rename…", command=self.rename_profile)
+        self.delete_btn = ttk.Button(pf, text="Delete", command=self.delete_profile)
+        for b in (new, self.rename_btn, self.delete_btn):
+            b.pack(side="left", padx=(0, 4))
+        self.profile_widgets = [new, self.rename_btn, self.delete_btn]
         f = ttk.Frame(pane); f.pack(fill="both", expand=True, padx=18, pady=16)
         f.columnconfigure(1, weight=1)
 
@@ -190,7 +204,9 @@ class App:
         btns = ttk.Frame(f); btns.grid(row=2, column=2, sticky="ne", pady=(10, 0))
         choose = ttk.Button(btns, text="Choose…", command=self.choose_logo)
         remove = ttk.Button(btns, text="Remove", command=self.remove_logo)
+        prompt = ttk.Button(btns, text="AI prompt…", command=self.show_logo_prompt)
         choose.pack(fill="x"); remove.pack(fill="x", pady=(4, 0))
+        prompt.pack(fill="x", pady=(4, 0))
 
         ttk.Label(f, text="Message").grid(row=3, column=0, sticky="nw", pady=(10, 0))
         self.message_box = tk.Text(f, height=3, width=30, wrap="word",
@@ -228,7 +244,8 @@ class App:
         ttk.Label(foot, textvariable=self.brand_status,
                   foreground=self.colors["muted"]).pack(side="right", padx=10)
 
-        self.brand_widgets = [on, name, choose, remove, footer_on, preview, self.brand_save_btn]
+        self.brand_widgets = [on, name, choose, remove, footer_on, preview, self.brand_save_btn,
+                              *self.profile_widgets]
         self._show_logo()
         # a field load() had to drop would otherwise just look blank
         if saved.notes:
@@ -267,8 +284,106 @@ class App:
         look like it applied when it didn't."""
         for w in self.brand_widgets:
             w.state(["disabled"] if locked else ["!disabled"])
+        self.profile_pick.configure(state="disabled" if locked else "readonly")
+        if not locked and not branding.current_profile():
+            self.delete_btn.state(["disabled"])
         self.message_box.configure(state="disabled" if locked else "normal")
         self.footer_box.configure(state="disabled" if locked else "normal")
+
+    # ------------------------------------------------------------ profiles
+    def _fill_brand_form(self, b):
+        """Show a profile's saved settings in the form, as saved."""
+        self.form_logo = b.logo
+        self.brand_on.set(b.enabled); self.shop_name.set(b.shop_name)
+        self.footer_on.set(b.footer_enabled)
+        for box, text, cap, count in (
+                (self.message_box, b.message, branding.MESSAGE_MAX, self.message_count),
+                (self.footer_box, b.footer, branding.FOOTER_MAX, self.footer_count)):
+            box.delete("1.0", "end"); box.insert("1.0", text[:cap])
+            box.edit_modified(False)
+            count.set(f"{len(box.get('1.0', 'end-1c'))} / {cap}")
+        self._show_logo()
+        self.brand_status.set("Note: " + "; ".join(b.notes) if b.notes else "")
+
+    def refresh_profiles(self):
+        """Both profile lists show every profile, with the current one chosen."""
+        self.profile_ids = [pid for pid, _ in branding.profiles()]
+        names = [n for _, n in branding.profiles()]
+        cur = self.profile_ids.index(branding.current_profile())
+        for box in (self.profile_pick, self.run_profile):
+            box.configure(values=names); box.current(cur)
+        self.rename_btn.state(["!disabled"])
+        self.delete_btn.state(["disabled"] if cur == 0 else ["!disabled"])
+
+    def _unsaved_ok(self):
+        """Before leaving a profile with unsaved edits: save, drop, or stay."""
+        if self.brand_status.get() != "Not saved yet":
+            return True
+        ans = messagebox.askyesnocancel(
+            "Unsaved branding",
+            f"Save your changes to {branding.profile_name(branding.current_profile())}?")
+        if ans is None:
+            return False
+        return self.save_branding() if ans else True
+
+    def _picked_profile(self, box):
+        self.switch_profile(self.profile_ids[box.current()])
+
+    def switch_profile(self, pid):
+        """Make `pid` current: what the next run prints and the form shows."""
+        if pid != branding.current_profile():
+            if not self._unsaved_ok():
+                self.refresh_profiles()          # put the lists back
+                return False
+            branding.set_current_profile(pid)
+            self._fill_brand_form(branding.load(pid))
+        self.refresh_profiles()
+        return True
+
+    def new_profile(self):
+        if not self._unsaved_ok():
+            return
+        name = simpledialog.askstring("New profile", "Name for the new branding profile:",
+                                      parent=self.root)
+        if name is None:
+            return
+        try:
+            # a copy of the current one: a new brand usually differs in a field or two
+            pid = branding.create_profile(name, copy_from=branding.current_profile())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Can't add that profile", str(exc))
+            return
+        self.brand_status.set("")
+        self.switch_profile(pid)
+
+    def rename_profile(self):
+        pid = branding.current_profile()
+        name = simpledialog.askstring("Rename profile", "New name:", parent=self.root,
+                                      initialvalue=branding.profile_name(pid))
+        if name is None:
+            return
+        try:
+            branding.rename_profile(pid, name)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Can't rename it", str(exc))
+            return
+        self.refresh_profiles()
+
+    def delete_profile(self):
+        pid = branding.current_profile()
+        if not pid:
+            return
+        if not messagebox.askyesno("Delete profile",
+                                   f"Delete the {branding.profile_name(pid)} profile? "
+                                   "This can't be undone."):
+            return
+        try:
+            branding.delete_profile(pid)
+        except OSError as exc:
+            messagebox.showerror("Can't delete it", str(exc))
+            return
+        self._fill_brand_form(branding.load(branding.DEFAULT_ID))
+        self.refresh_profiles()
 
     def _show_logo(self):
         if self.form_logo is None:
@@ -288,6 +403,37 @@ class App:
                               logo=self.form_logo,
                               footer_enabled=self.footer_on.get(),
                               footer=self.footer_box.get("1.0", "end-1c").strip())
+
+    def logo_prompt_text(self):
+        return branding.logo_prompt(self.shop_name.get())
+
+    def copy_logo_prompt(self):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.logo_prompt_text())
+        self.root.update()                  # hand the clipboard to the system
+
+    def show_logo_prompt(self):
+        """A prompt to paste into an AI image tool, sized for the logo box."""
+        win = tk.Toplevel(self.root); win.title("Logo prompt")
+        win.transient(self.root)
+        f = ttk.Frame(win, padding=14); f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Paste this into an AI image tool (ChatGPT, Gemini, Canva…), "
+                          "then choose the image it makes as your logo.",
+                  wraplength=440, justify="left").pack(anchor="w")
+        box = tk.Text(f, height=14, width=60, wrap="word", font="TkDefaultFont",
+                      **self._text_colors())
+        box.insert("1.0", self.logo_prompt_text())
+        box.configure(state="disabled")     # selectable, not editable
+        box.pack(fill="both", expand=True, pady=(8, 8))
+        row = ttk.Frame(f); row.pack(fill="x")
+        copied = tk.StringVar(value="")
+        def copy():
+            self.copy_logo_prompt(); copied.set("Copied")
+        ttk.Button(row, text="Copy", style="Accent.TButton", command=copy).pack(side="right")
+        ttk.Label(row, textvariable=copied, foreground=self.colors["muted"]).pack(
+            side="right", padx=8)
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="left")
+        self.prompt_win = win
 
     def choose_logo(self, path=None):
         if path is None:
@@ -349,21 +495,33 @@ class App:
     def _build_idle(self, f):
         card = ttk.Frame(f, style="Card.TFrame", padding=30)
         card.pack(fill="both", expand=True)
-        ttk.Label(card, text="Choose a Whatnot export",
+        ttk.Label(card, text="Choose a Whatnot or TikTok export",
                   font=("TkDefaultFont", 14, "bold")).pack(pady=(14, 6))
-        ttk.Label(card, text="Combined Labels + Packing Slips, straight from Whatnot.",
+        ttk.Label(card, text="Whatnot Combined Labels + Packing Slips, or TikTok Shop "
+                             "labels + packing slips.",
                   foreground=self.colors["muted"]).pack()
         ttk.Button(card, text="Choose file…", width=16, style="Accent.TButton",
                    command=self.pick_file).pack(pady=(18, 4), ipady=3)
         self.show_prices = tk.BooleanVar(value=recent.get_pref("show_prices", True))
         self.pick_list = tk.BooleanVar(value=recent.get_pref("pick_list", False))
+        self.condense = tk.BooleanVar(value=recent.get_pref("condense", True))
         self.show_prices.trace_add(
             "write", lambda *_: recent.set_pref("show_prices", self.show_prices.get()))
         self.pick_list.trace_add(
             "write", lambda *_: recent.set_pref("pick_list", self.pick_list.get()))
+        self.condense.trace_add(
+            "write", lambda *_: recent.set_pref("condense", self.condense.get()))
+        prow = ttk.Frame(card); prow.pack(pady=(6, 2))
+        ttk.Label(prow, text="Branding:").pack(side="left")
+        self.run_profile = ttk.Combobox(prow, state="readonly", width=22, values=[])
+        self.run_profile.pack(side="left", padx=(8, 0))
+        self.run_profile.bind("<<ComboboxSelected>>",
+                              lambda e: self._picked_profile(self.run_profile))
         opts = ttk.Frame(card); opts.pack(pady=(6, 0))
         ttk.Checkbutton(opts, text="Show prices", variable=self.show_prices).pack(anchor="w")
         ttk.Checkbutton(opts, text="Add pick list", variable=self.pick_list).pack(anchor="w")
+        ttk.Checkbutton(opts, text="Condense repeated items",
+                        variable=self.condense).pack(anchor="w")
         # one click for the export that just landed in Downloads
         row = ttk.Frame(card); row.pack()
         self.recent_btn = ttk.Button(row, command=self.use_recent)
@@ -396,7 +554,8 @@ class App:
 
     def pick_file(self, path=None):
         if path is None:
-            path = dialogs.ask_open(self.root, "Choose a Whatnot export", recent.export_dir(),
+            path = dialogs.ask_open(self.root, "Choose a Whatnot or TikTok export",
+                                    recent.export_dir(),
                                     [("PDF files", "*.pdf *.PDF"), ("All files", "*")])
         if not path:
             return
@@ -443,17 +602,28 @@ class App:
         ttk.Button(row, text="Do another", command=self.reset).pack(side="left", padx=5)
 
     # ----------------------------------------------------------------- run
-    def default_name(self):
-        return dt.date.today().strftime("%Y-%m-%d-slips.pdf")
+    def default_name(self, kind=None):
+        """2026-10-24-tiktok-slips.pdf; without a known platform, no tag."""
+        tag = f"-{kind}" if kind else ""
+        return dt.date.today().strftime(f"%Y-%m-%d{tag}-slips.pdf")
+
+    def detect_src(self):
+        """'whatnot' or 'tiktok' for the chosen export, or None. A file that is
+        neither still gets a name: the run itself says what is wrong with it."""
+        try:
+            return platforms.detect(str(self.src)) if self.src else None
+        except Exception:
+            return None
 
     def ask_destination(self):
         """Ask until we get somewhere writable, or the user gives up. Checking
         now costs a second; checking after the build costs ninety."""
+        name = self.default_name(self.detect_src())
         while True:
             # beside the export, which is where the user just was
             folder = self.src.parent if self.src else recent.export_dir()
             dest = dialogs.ask_save(self.root, "Save print-ready PDF as…", folder,
-                                    self.default_name(), [("PDF files", "*.pdf")], ".pdf")
+                                    name, [("PDF files", "*.pdf")], ".pdf")
             if not dest:
                 return None               # cancelled — costs nothing
             d = pathlib.Path(dest)
@@ -478,7 +648,8 @@ class App:
         job = jobmod.Job(self.src, dest, brand=branding.active(),
                            footer=branding.active_footer(),
                            prices=self.show_prices.get(), pick_list=self.pick_list.get(),
-                           notes=branding.load().notes)
+                           condense=self.condense.get(), notes=branding.load().notes,
+                           profile=branding.profile_name(branding.current_profile()))
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 
@@ -531,7 +702,8 @@ class App:
         self.result = result
         self.tab("run")
         if result.ok:
-            self.stats_text.set(f"{result.pages} pages\n{result.checks:,} checks passed")
+            lead = f"{result.platform} · " if result.platform else ""
+            self.stats_text.set(f"{lead}{result.pages} pages\n{result.checks:,} checks passed")
             self.show("done")
         else:
             self.fail_text.set(result.message)

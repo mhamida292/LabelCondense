@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Process every Whatnot export sitting in inbox/ and put print-ready PDFs in outbox/.
+# Process every Whatnot or TikTok Shop export sitting in inbox/ and put print-ready PDFs in outbox/.
 #   ./run.sh            process everything in inbox/, full audit
 #   ./run.sh --fast     skip the per-label pixel check (~90s/file faster)
 #   ./run.sh --no-prices  print slips without prices
 #   ./run.sh --pick-list  put a pick list at the front of the PDF
+#   ./run.sh --no-condense  one slip row per item; repeats are not grouped
+#   ./run.sh --profile=NAME   use that branding profile (default: last picked in the app)
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -18,6 +20,8 @@ for a in "$@"; do
     --fast) DEEP="" ;;
     --no-prices) EXTRA+=(--no-prices) ;;
     --pick-list) EXTRA+=(--pick-list) ;;
+    --no-condense) EXTRA+=(--no-condense) ;;
+    --profile=*) EXTRA+=(--profile "${a#--profile=}") ;;
     -h|--help) sed -n '2,${/^#/!q;p;}' "$0"; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
@@ -32,7 +36,7 @@ files=("$IN"/*.pdf)
 shopt -u nocaseglob
 
 if [ ${#files[@]} -eq 0 ]; then
-  echo "inbox/ is empty — drop today's Whatnot export in there, then run this again."
+  echo "inbox/ is empty — drop today's Whatnot or TikTok export in there, then run this again."
   exit 0
 fi
 
@@ -49,9 +53,10 @@ for src in "${files[@]}"; do
     skip=$((skip+1)); continue
   fi
 
-  # pick a free name in outbox
-  n=1; out="$OUTBOX/$STAMP-slips.pdf"
-  while [ -e "$out" ]; do n=$((n+1)); out="$OUTBOX/$STAMP-slips-$n.pdf"; done
+  # pick a free name in outbox, tagged with the platform when it is known
+  tag=$(python3 "$TOOL/whatnot_slips.py" detect "$src" 2>/dev/null) && tag="-$tag" || tag=""
+  n=1; out="$OUTBOX/$STAMP$tag-slips.pdf"
+  while [ -e "$out" ]; do n=$((n+1)); out="$OUTBOX/$STAMP$tag-slips-$n.pdf"; done
 
   echo "  $base"
   { echo "=== $(date '+%F %T')  $base -> $out"; } >> "$LOG"

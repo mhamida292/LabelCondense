@@ -22,6 +22,22 @@ def app(tmp_path, monkeypatch):
 def test_default_name_is_dated(app):
     assert app.default_name() == dt.date.today().strftime("%Y-%m-%d-slips.pdf")
 
+def test_default_name_carries_the_platform(app):
+    assert app.default_name("tiktok") == dt.date.today().strftime("%Y-%m-%d-tiktok-slips.pdf")
+
+def test_save_dialog_suggests_the_detected_platform(app, tmp_path, monkeypatch):
+    import packing_gui, tiktok_synth
+    src = tiktok_synth.make_export(tmp_path / "in.pdf", tiktok_synth.sample()[:1])
+    offered = []
+    monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename",
+                        lambda **kw: (offered.append(kw.get("initialfile")), "")[1])
+    app.pick_file(str(src))
+    assert offered == [dt.date.today().strftime("%Y-%m-%d-tiktok-slips.pdf")]
+
+def test_an_unrecognised_file_still_gets_a_name(app, tmp_path):
+    app.src = tmp_path / "missing.pdf"
+    assert app.detect_src() is None
+
 def test_cancelling_save_returns_to_idle(app, tmp_path, monkeypatch):
     import packing_gui
     monkeypatch.setattr(packing_gui.filedialog, "asksaveasfilename", lambda **kw: "")
@@ -72,6 +88,14 @@ def test_done_event_switches_to_result(app, tmp_path):
     assert app.state == "done"
     assert "304" in app.stats_text.get()
     assert "3,743" in app.stats_text.get()
+
+def test_done_names_the_detected_platform(app, tmp_path):
+    import job
+    r = job.Result(True, 129, 1636, 0, tmp_path / "r.log", tmp_path / "o.pdf", "",
+                   "TikTok Shop")
+    app.queue.put({"kind": "done", "result": r})
+    app.pump()
+    assert app.stats_text.get().startswith("TikTok Shop · 129 pages")
 
 def test_failed_result_badges_and_shows_failure(app, tmp_path):
     import job

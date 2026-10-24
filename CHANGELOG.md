@@ -3,6 +3,33 @@
 Each release's section becomes the "What's new" part of its notes on the
 Releases page. The release build refuses a tag that has no section here.
 
+## v1.8.0
+
+- **TikTok Shop exports.** Drop a TikTok label + packing slip PDF in, the
+  same as a Whatnot one; the app tells which it is and says so. A live
+  auction's lot numbers become `#N`, so a buyer's repeat wins collapse onto
+  one line with every number and price under it. The slip keeps TikTok's
+  order ID, dates, tracking number, show name and buyer, and every fact is
+  checked against the original export.
+- **TikTok pick list.** Add pick list on a TikTok export lists every lot in
+  order with the buyer's nickname, grouped by show.
+- **Condense repeated items.** A new switch on the Run tab, on by default.
+  Turn it off to give every item its own row. `./run.sh --no-condense` does
+  the same.
+- TikTok labels are cut out of their A6 page and scaled evenly to 4×6, so
+  the barcode is never stretched.
+- **Branding profiles.** Keep a separate shop name, logo, message and footer
+  for each brand, and pick one from the new Branding dropdown on the Run tab.
+  The Branding tab can add, rename and delete profiles. Your current branding
+  becomes the Default profile. `./run.sh --profile=NAME` picks one by name.
+- **Logo prompt.** The Branding tab's AI prompt… button gives a copy-ready
+  prompt for an AI image tool, with your shop name, asking for a logo the
+  right shape (3:1) and in pure black and white with lines thick enough to
+  print.
+- **The platform is in the file name.** The suggested name is now
+  `2026-10-24-tiktok-slips.pdf` or `2026-10-24-whatnot-slips.pdf`, in the app
+  and in `./run.sh`.
+
 ## v1.7.0
 
 - **Footer message.** The Branding tab has a new Footer message: up to 2

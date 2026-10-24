@@ -20,6 +20,16 @@ def sku_pdf():
         pytest.skip(f"PACKING_SKU_PDF does not exist: {path}")
     return path
 
+@pytest.fixture(scope="session")
+def tiktok_pdf():
+    p = os.environ.get("PACKING_TIKTOK_PDF")
+    if not p:
+        pytest.skip("set PACKING_TIKTOK_PDF to a real TikTok Shop export")
+    path = pathlib.Path(p).expanduser()
+    if not path.is_file():
+        pytest.skip(f"PACKING_TIKTOK_PDF does not exist: {path}")
+    return path
+
 @pytest.fixture(autouse=True)
 def settings_in_tmp(tmp_path, monkeypatch):
     """No test may read or write the real user's branding settings."""
