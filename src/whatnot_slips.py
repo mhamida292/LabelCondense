@@ -1107,6 +1107,8 @@ def main():
                    help='put a pick list at the front of the PDF')
     b.add_argument('--no-condense', action='store_true',
                    help='one slip row per source line; repeats are not grouped')
+    b.add_argument('--profile', metavar='NAME',
+                   help='branding profile to use (default: the one last picked in the app)')
     d = sub.add_parser('detect', help="print the export's platform: whatnot or tiktok")
     d.add_argument('src')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
@@ -1122,6 +1124,8 @@ def main():
                    help='expect an output built with --pick-list')
     v.add_argument('--no-condense', action='store_true',
                    help='expect an output built with --no-condense')
+    v.add_argument('--profile', metavar='NAME',
+                   help='expect the branding of this profile')
     args = ap.parse_args()
 
     try:
@@ -1142,9 +1146,18 @@ def _run(args):
     print(f"detected: {platforms.NAMES[kind]}")
     if not args.no_brand:
         import branding            # lazily: branding imports this module
-        brand = branding.active()
-        footer = branding.active_footer()
-        for note in branding.load().notes:   # also a footer dropped with the header off
+        pid = branding.current_profile()
+        if args.profile:
+            pid = branding.profile_id(args.profile)
+            if pid is None:
+                names = ", ".join(n for _, n in branding.profiles())
+                print(f"no branding profile called {args.profile!r}; there is {names}")
+                return 1
+        brand = branding.active(pid)
+        footer = branding.active_footer(pid)
+        if len(branding.profiles()) > 1 or args.profile:
+            print(f"branding profile: {branding.profile_name(pid)}")
+        for note in branding.load(pid).notes:   # also a footer dropped with the header off
             print(f"branding: {note}")
     if args.cmd == 'build':
         n, nsl, nlb = mod.build(args.src, args.out, brand=brand, footer=footer,

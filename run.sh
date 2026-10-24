@@ -5,6 +5,7 @@
 #   ./run.sh --no-prices  print slips without prices
 #   ./run.sh --pick-list  put a pick list at the front of the PDF
 #   ./run.sh --no-condense  one slip row per item; repeats are not grouped
+#   ./run.sh --profile=NAME   use that branding profile (default: last picked in the app)
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -20,6 +21,7 @@ for a in "$@"; do
     --no-prices) EXTRA+=(--no-prices) ;;
     --pick-list) EXTRA+=(--pick-list) ;;
     --no-condense) EXTRA+=(--no-condense) ;;
+    --profile=*) EXTRA+=(--profile "${a#--profile=}") ;;
     -h|--help) sed -n '2,${/^#/!q;p;}' "$0"; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac

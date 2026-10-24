@@ -1,6 +1,6 @@
 """The window. One state at a time, three tabs, nothing else."""
 import base64, datetime as dt, io, os, pathlib, queue, subprocess, sys, tempfile, threading, tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from PIL import Image
 
@@ -65,6 +65,7 @@ class App:
         self._build_failed(self.frames["failed"])
 
         self._build_branding(self.panes["branding"])
+        self.refresh_profiles()
         self.panes["run"].pack(fill="both", expand=True)
         self.show("idle")
 
@@ -171,6 +172,18 @@ class App:
     def _build_branding(self, pane):
         saved = branding.load()
         self.form_logo = saved.logo
+        pf = ttk.Frame(pane); pf.pack(fill="x", padx=18, pady=(16, 0))
+        ttk.Label(pf, text="Profile").pack(side="left")
+        self.profile_pick = ttk.Combobox(pf, state="readonly", width=24, values=[])
+        self.profile_pick.pack(side="left", padx=(12, 8))
+        self.profile_pick.bind("<<ComboboxSelected>>",
+                               lambda e: self._picked_profile(self.profile_pick))
+        new = ttk.Button(pf, text="New…", command=self.new_profile)
+        self.rename_btn = ttk.Button(pf, text="Rename…", command=self.rename_profile)
+        self.delete_btn = ttk.Button(pf, text="Delete", command=self.delete_profile)
+        for b in (new, self.rename_btn, self.delete_btn):
+            b.pack(side="left", padx=(0, 4))
+        self.profile_widgets = [new, self.rename_btn, self.delete_btn]
         f = ttk.Frame(pane); f.pack(fill="both", expand=True, padx=18, pady=16)
         f.columnconfigure(1, weight=1)
 
@@ -229,7 +242,8 @@ class App:
         ttk.Label(foot, textvariable=self.brand_status,
                   foreground=self.colors["muted"]).pack(side="right", padx=10)
 
-        self.brand_widgets = [on, name, choose, remove, footer_on, preview, self.brand_save_btn]
+        self.brand_widgets = [on, name, choose, remove, footer_on, preview, self.brand_save_btn,
+                              *self.profile_widgets]
         self._show_logo()
         # a field load() had to drop would otherwise just look blank
         if saved.notes:
@@ -268,8 +282,106 @@ class App:
         look like it applied when it didn't."""
         for w in self.brand_widgets:
             w.state(["disabled"] if locked else ["!disabled"])
+        self.profile_pick.configure(state="disabled" if locked else "readonly")
+        if not locked and not branding.current_profile():
+            self.delete_btn.state(["disabled"])
         self.message_box.configure(state="disabled" if locked else "normal")
         self.footer_box.configure(state="disabled" if locked else "normal")
+
+    # ------------------------------------------------------------ profiles
+    def _fill_brand_form(self, b):
+        """Show a profile's saved settings in the form, as saved."""
+        self.form_logo = b.logo
+        self.brand_on.set(b.enabled); self.shop_name.set(b.shop_name)
+        self.footer_on.set(b.footer_enabled)
+        for box, text, cap, count in (
+                (self.message_box, b.message, branding.MESSAGE_MAX, self.message_count),
+                (self.footer_box, b.footer, branding.FOOTER_MAX, self.footer_count)):
+            box.delete("1.0", "end"); box.insert("1.0", text[:cap])
+            box.edit_modified(False)
+            count.set(f"{len(box.get('1.0', 'end-1c'))} / {cap}")
+        self._show_logo()
+        self.brand_status.set("Note: " + "; ".join(b.notes) if b.notes else "")
+
+    def refresh_profiles(self):
+        """Both profile lists show every profile, with the current one chosen."""
+        self.profile_ids = [pid for pid, _ in branding.profiles()]
+        names = [n for _, n in branding.profiles()]
+        cur = self.profile_ids.index(branding.current_profile())
+        for box in (self.profile_pick, self.run_profile):
+            box.configure(values=names); box.current(cur)
+        self.rename_btn.state(["!disabled"])
+        self.delete_btn.state(["disabled"] if cur == 0 else ["!disabled"])
+
+    def _unsaved_ok(self):
+        """Before leaving a profile with unsaved edits: save, drop, or stay."""
+        if self.brand_status.get() != "Not saved yet":
+            return True
+        ans = messagebox.askyesnocancel(
+            "Unsaved branding",
+            f"Save your changes to {branding.profile_name(branding.current_profile())}?")
+        if ans is None:
+            return False
+        return self.save_branding() if ans else True
+
+    def _picked_profile(self, box):
+        self.switch_profile(self.profile_ids[box.current()])
+
+    def switch_profile(self, pid):
+        """Make `pid` current: what the next run prints and the form shows."""
+        if pid != branding.current_profile():
+            if not self._unsaved_ok():
+                self.refresh_profiles()          # put the lists back
+                return False
+            branding.set_current_profile(pid)
+            self._fill_brand_form(branding.load(pid))
+        self.refresh_profiles()
+        return True
+
+    def new_profile(self):
+        if not self._unsaved_ok():
+            return
+        name = simpledialog.askstring("New profile", "Name for the new branding profile:",
+                                      parent=self.root)
+        if name is None:
+            return
+        try:
+            # a copy of the current one: a new brand usually differs in a field or two
+            pid = branding.create_profile(name, copy_from=branding.current_profile())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Can't add that profile", str(exc))
+            return
+        self.brand_status.set("")
+        self.switch_profile(pid)
+
+    def rename_profile(self):
+        pid = branding.current_profile()
+        name = simpledialog.askstring("Rename profile", "New name:", parent=self.root,
+                                      initialvalue=branding.profile_name(pid))
+        if name is None:
+            return
+        try:
+            branding.rename_profile(pid, name)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Can't rename it", str(exc))
+            return
+        self.refresh_profiles()
+
+    def delete_profile(self):
+        pid = branding.current_profile()
+        if not pid:
+            return
+        if not messagebox.askyesno("Delete profile",
+                                   f"Delete the {branding.profile_name(pid)} profile? "
+                                   "This can't be undone."):
+            return
+        try:
+            branding.delete_profile(pid)
+        except OSError as exc:
+            messagebox.showerror("Can't delete it", str(exc))
+            return
+        self._fill_brand_form(branding.load(branding.DEFAULT_ID))
+        self.refresh_profiles()
 
     def _show_logo(self):
         if self.form_logo is None:
@@ -366,6 +478,12 @@ class App:
             "write", lambda *_: recent.set_pref("pick_list", self.pick_list.get()))
         self.condense.trace_add(
             "write", lambda *_: recent.set_pref("condense", self.condense.get()))
+        prow = ttk.Frame(card); prow.pack(pady=(6, 2))
+        ttk.Label(prow, text="Branding:").pack(side="left")
+        self.run_profile = ttk.Combobox(prow, state="readonly", width=22, values=[])
+        self.run_profile.pack(side="left", padx=(8, 0))
+        self.run_profile.bind("<<ComboboxSelected>>",
+                              lambda e: self._picked_profile(self.run_profile))
         opts = ttk.Frame(card); opts.pack(pady=(6, 0))
         ttk.Checkbutton(opts, text="Show prices", variable=self.show_prices).pack(anchor="w")
         ttk.Checkbutton(opts, text="Add pick list", variable=self.pick_list).pack(anchor="w")
@@ -497,7 +615,8 @@ class App:
         job = jobmod.Job(self.src, dest, brand=branding.active(),
                            footer=branding.active_footer(),
                            prices=self.show_prices.get(), pick_list=self.pick_list.get(),
-                           condense=self.condense.get(), notes=branding.load().notes)
+                           condense=self.condense.get(), notes=branding.load().notes,
+                           profile=branding.profile_name(branding.current_profile()))
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 

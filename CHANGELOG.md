@@ -18,6 +18,10 @@ Releases page. The release build refuses a tag that has no section here.
   the same.
 - TikTok labels are cut out of their A6 page and scaled evenly to 4×6, so
   the barcode is never stretched.
+- **Branding profiles.** Keep a separate shop name, logo, message and footer
+  for each brand, and pick one from the new Branding dropdown on the Run tab.
+  The Branding tab can add, rename and delete profiles. Your current branding
+  becomes the Default profile. `./run.sh --profile=NAME` picks one by name.
 - **The platform is in the file name.** The suggested name is now
   `2026-10-24-tiktok-slips.pdf` or `2026-10-24-whatnot-slips.pdf`, in the app
   and in `./run.sh`.

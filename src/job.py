@@ -32,7 +32,7 @@ class Result:
 
 class Job:
     def __init__(self, src, dest, deep=True, brand=None, footer=None,
-                 prices=True, pick_list=False, notes=None, condense=True):
+                 prices=True, pick_list=False, notes=None, condense=True, profile=""):
         self.src = pathlib.Path(src)
         self.dest = pathlib.Path(dest)
         self.deep = deep
@@ -41,6 +41,7 @@ class Job:
         self.prices = prices
         self.pick_list = pick_list
         self.condense = condense
+        self.profile = profile
         # branding.load() notes; None -> whatever the brand carries
         self.notes = notes
 
@@ -54,6 +55,8 @@ class Job:
         def progress(done, total, stage):
             emit({"kind": "progress", "done": done, "total": total, "stage": stage})
 
+        if self.profile:
+            log(f"branding profile: {self.profile}")
         for note in (self.notes if self.notes is not None
                      else self.brand.notes if self.brand else []):
             log(f"branding: {note}")

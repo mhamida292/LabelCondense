@@ -1,7 +1,14 @@
 """The shop's branding for the slip header: what it says, where it is kept,
 and turning a chosen image into what the thermal head will print. Knows
-nothing about tkinter; drawing it is whatnot_slips' job."""
-import json, os, pathlib, tempfile
+nothing about tkinter; drawing it is whatnot_slips' job.
+
+Branding lives in profiles, one per brand, so different shows can print
+different headers without retyping them. The first profile ("Default") is
+kept in settings.json + logo.png exactly as before profiles existed; the
+others are profiles/<id>.json + profiles/<id>.png. A profile's id never
+changes, so renaming one moves no files; the chosen one is remembered in
+prefs.json."""
+import json, os, pathlib, re, tempfile
 from dataclasses import dataclass, field
 
 from PIL import Image, ImageOps
@@ -16,6 +23,9 @@ MESSAGE_MAX = 60                 # about two lines beside the logo box
 FOOTER_MAX = 120
 FOOTER_LINES = 2
 PAGE_MARKERS = ("To:", "From:", "Packing Slip", "Pick List")
+DEFAULT_ID = ""                  # the profile stored in settings.json + logo.png
+DEFAULT_NAME = "Default"
+PROFILE_NAME_MAX = 40
 
 @dataclass
 class Brand:
@@ -26,6 +36,7 @@ class Brand:
     footer_enabled: bool = False
     footer: str = ""
     notes: list = field(default_factory=list)   # why something fell back
+    profile: str = DEFAULT_NAME                 # which profile it came from
 
 def settings_dir():
     override = os.environ.get("LABEL_CONDENSE_SETTINGS_DIR")
@@ -33,8 +44,110 @@ def settings_dir():
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-def _settings_path(): return settings_dir() / "settings.json"
-def _logo_path():     return settings_dir() / "logo.png"
+def _settings_path(pid=DEFAULT_ID):
+    return settings_dir() / "settings.json" if not pid else _profiles_dir() / f"{pid}.json"
+
+def _logo_path(pid=DEFAULT_ID):
+    return settings_dir() / "logo.png" if not pid else _profiles_dir() / f"{pid}.png"
+
+def _profiles_dir():
+    return settings_dir() / "profiles"
+
+# ------------------------------------------------------------------ profiles
+RE_PID = re.compile(r'^p\d+$')
+
+def _raw(pid):
+    """A profile's saved fields as stored, or {} if missing or unreadable."""
+    try:
+        raw = json.loads(_settings_path(pid).read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def _name_key(pid):
+    return "profile_name" if not pid else "name"
+
+def profile_name(pid):
+    name = _raw(pid).get(_name_key(pid))
+    return name.strip() if isinstance(name, str) and name.strip() else (
+        DEFAULT_NAME if not pid else pid)
+
+def profiles():
+    """[(id, name)]: Default first, then the rest by name."""
+    try:
+        extra = [f.stem for f in _profiles_dir().glob("p*.json") if RE_PID.match(f.stem)]
+    except OSError:
+        extra = []
+    rest = sorted(((pid, profile_name(pid)) for pid in extra), key=lambda p: p[1].lower())
+    return [(DEFAULT_ID, profile_name(DEFAULT_ID))] + rest
+
+def profile_id(name):
+    """The id of the profile called `name` (any case), or None."""
+    for pid, n in profiles():
+        if n.lower() == name.strip().lower():
+            return pid
+    return None
+
+def _prefs_file():
+    return settings_dir() / "prefs.json"
+
+def current_profile():
+    """The id of the profile the last run used (or the app last showed)."""
+    try:
+        pid = json.loads(_prefs_file().read_text(encoding="utf-8")).get("profile", DEFAULT_ID)
+    except (OSError, ValueError, AttributeError):
+        pid = DEFAULT_ID
+    if not isinstance(pid, str) or (pid and not _settings_path(pid).exists()):
+        return DEFAULT_ID
+    return pid
+
+def set_current_profile(pid):
+    import recent                  # lazily: recent imports this module
+    recent.set_pref("profile", pid)
+
+def name_problem(name, pid=None):
+    """Why `name` can't name a profile (pid: the one being renamed), or None."""
+    name = name.strip()
+    if not name:
+        return "Give the profile a name."
+    if len(name) > PROFILE_NAME_MAX:
+        return f"Profile names can be up to {PROFILE_NAME_MAX} characters."
+    other = profile_id(name)
+    if other is not None and other != pid:
+        return f"There is already a profile called {name}."
+    return None
+
+def create_profile(name, copy_from=None):
+    """A new profile called `name`, starting as a copy of `copy_from` (an id)
+    or of nothing. -> its id."""
+    err = name_problem(name)
+    if err:
+        raise ValueError(err)
+    _profiles_dir().mkdir(parents=True, exist_ok=True)
+    taken = {pid for pid, _ in profiles()}
+    pid = next(f"p{k}" for k in range(1, 10000) if f"p{k}" not in taken)
+    b = load(copy_from) if copy_from is not None else Brand()
+    b.notes = []
+    _write(pid, b, name.strip())
+    return pid
+
+def rename_profile(pid, name):
+    err = name_problem(name, pid)
+    if err:
+        raise ValueError(err)
+    raw = _raw(pid); raw[_name_key(pid)] = name.strip()
+    data = json.dumps(raw, indent=2)
+    _replace_atomically(_settings_path(pid),
+                        lambda tmp: pathlib.Path(tmp).write_text(data, encoding="utf-8"))
+
+def delete_profile(pid):
+    """Remove a profile. Default can't go: it is what everything falls back to."""
+    if not pid:
+        raise ValueError("The Default profile can't be deleted.")
+    _settings_path(pid).unlink(missing_ok=True)
+    _logo_path(pid).unlink(missing_ok=True)
+    if current_profile() == pid:
+        set_current_profile(DEFAULT_ID)
 
 def message_fits(text):
     text = ws.renderable(text)
@@ -85,11 +198,14 @@ def problems(b):
                    "part of the page.")
     return out
 
-def load():
-    """Never raises: it runs at app start and at the start of every run."""
-    b = Brand()
+def load(pid=None):
+    """A profile's branding (None: the current profile). Never raises: it runs
+    at app start and at the start of every run."""
+    if pid is None:
+        pid = current_profile()
+    b = Brand(profile=profile_name(pid))
     try:
-        raw = json.loads(_settings_path().read_text(encoding="utf-8"))
+        raw = json.loads(_settings_path(pid).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("not a settings object")
         for key, attr, kind in (("brand_enabled", "enabled", bool),
@@ -124,7 +240,7 @@ def load():
             b.notes.append(f'branding {what} contains "To:" or "From:"; not printed')
             setattr(b, attr, "")
     try:
-        path = _logo_path()
+        path = _logo_path(pid)
         if path.exists():
             with Image.open(path) as im:
                 b.logo = im.convert("1")
@@ -132,14 +248,14 @@ def load():
         b.notes.append(f"logo unreadable ({exc}); showing the shop name instead")
     return b
 
-def active():
+def active(pid=None):
     """The brand to print with, or None when branding is switched off."""
-    b = load()
+    b = load(pid)
     return b if b.enabled else None
 
-def active_footer():
+def active_footer(pid=None):
     """The footer to print, or None; independent of header branding."""
-    b = load()
+    b = load(pid)
     text = ws.renderable(b.footer) if b.footer_enabled else ""
     return text or None
 
@@ -153,19 +269,29 @@ def _replace_atomically(path, write):
         pathlib.Path(tmp).unlink(missing_ok=True)
         raise
 
-def save(b):
+def save(b, pid=None):
+    """Save `b` into a profile (None: the current one), keeping its name."""
+    if pid is None:
+        pid = current_profile()
     errs = problems(b)
     if errs:
         raise ValueError(" ".join(errs))
-    data = json.dumps({"brand_enabled": b.enabled, "shop_name": b.shop_name,
-                       "message": b.message,
-                       "footer_enabled": b.footer_enabled, "footer": b.footer}, indent=2)
-    _replace_atomically(_settings_path(),
+    name = _raw(pid).get(_name_key(pid))
+    _write(pid, b, name if isinstance(name, str) else None)
+
+def _write(pid, b, name):
+    fields = {"brand_enabled": b.enabled, "shop_name": b.shop_name,
+              "message": b.message,
+              "footer_enabled": b.footer_enabled, "footer": b.footer}
+    if name:
+        fields[_name_key(pid)] = name
+    data = json.dumps(fields, indent=2)
+    _replace_atomically(_settings_path(pid),
                         lambda tmp: pathlib.Path(tmp).write_text(data, encoding="utf-8"))
     if b.logo is None:
-        _logo_path().unlink(missing_ok=True)
+        _logo_path(pid).unlink(missing_ok=True)
     else:
-        _replace_atomically(_logo_path(), lambda tmp: b.logo.save(tmp, "PNG"))
+        _replace_atomically(_logo_path(pid), lambda tmp: b.logo.save(tmp, "PNG"))
 
 def import_logo(path):
     """Any image Pillow reads, turned into exactly what will print:
