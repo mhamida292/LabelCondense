@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Process every Whatnot export sitting in inbox/ and put print-ready PDFs in outbox/.
+# Process every Whatnot or TikTok Shop export sitting in inbox/ and put print-ready PDFs in outbox/.
 #   ./run.sh            process everything in inbox/, full audit
 #   ./run.sh --fast     skip the per-label pixel check (~90s/file faster)
 #   ./run.sh --no-prices  print slips without prices
 #   ./run.sh --pick-list  put a pick list at the front of the PDF
+#   ./run.sh --no-condense  one slip row per item; repeats are not grouped
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -18,6 +19,7 @@ for a in "$@"; do
     --fast) DEEP="" ;;
     --no-prices) EXTRA+=(--no-prices) ;;
     --pick-list) EXTRA+=(--pick-list) ;;
+    --no-condense) EXTRA+=(--no-condense) ;;
     -h|--help) sed -n '2,${/^#/!q;p;}' "$0"; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
@@ -32,7 +34,7 @@ files=("$IN"/*.pdf)
 shopt -u nocaseglob
 
 if [ ${#files[@]} -eq 0 ]; then
-  echo "inbox/ is empty — drop today's Whatnot export in there, then run this again."
+  echo "inbox/ is empty — drop today's Whatnot or TikTok export in there, then run this again."
   exit 0
 fi
 

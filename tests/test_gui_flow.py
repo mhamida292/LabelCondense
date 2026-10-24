@@ -73,6 +73,14 @@ def test_done_event_switches_to_result(app, tmp_path):
     assert "304" in app.stats_text.get()
     assert "3,743" in app.stats_text.get()
 
+def test_done_names_the_detected_platform(app, tmp_path):
+    import job
+    r = job.Result(True, 129, 1636, 0, tmp_path / "r.log", tmp_path / "o.pdf", "",
+                   "TikTok Shop")
+    app.queue.put({"kind": "done", "result": r})
+    app.pump()
+    assert app.stats_text.get().startswith("TikTok Shop · 129 pages")
+
 def test_failed_result_badges_and_shows_failure(app, tmp_path):
     import job
     r = job.Result(False, 0, 3743, 14, tmp_path / "r.log", None, "14 checks failed")

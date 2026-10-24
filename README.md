@@ -4,6 +4,11 @@ Rebuilds the Whatnot **Combined Labels + Packing Slips** export so repeated
 products collapse onto one line — keeping **every `#N` and its price** — and
 re-interleaves them with the original shipping labels.
 
+**TikTok Shop** label + packing slip exports work too. The app tells the two
+apart by itself: drop either one in. On a TikTok live auction the lot number
+(the Seller SKU) becomes the `#N`, so a buyer's nine wins print as one line
+with nine numbers under it.
+
 ---
 
 ## Download
@@ -23,7 +28,9 @@ bar runs, and print.
 
 To put your logo and a thank-you note on the slips, open the **Branding** tab, fill it in, click **Preview slip**, then **Save**. Every run after that uses it. `./run.sh` uses the same settings; pass `--no-brand` to `whatnot_slips.py` to skip them (that drops the footer too).
 
-The Branding tab also has a **Footer message** (2 lines, 120 characters) printed at the bottom of every slip; **Show footer on slips** turns it on or off separately from the header message. On the Run tab, untick **Show prices** to print slips without prices, and tick **Add pick list** to put a pick list (each product once, with the quantity to pull) at the front of the PDF.
+The Branding tab also has a **Footer message** (2 lines, 120 characters) printed at the bottom of every slip; **Show footer on slips** turns it on or off separately from the header message. On the Run tab, untick **Show prices** to print slips without prices, and tick **Add pick list** to put a pick list (each product once, with the quantity to pull) at the front of the PDF. Untick **Condense repeated items** to give every item its own row instead of grouping repeats.
+
+For a TikTok export the pick list is different: every lot number in order, two columns, with the buyer's nickname beside it, grouped by show (two shows can both have a #69). The TikTok slip keeps TikTok's own fields at the top (order ID, created time, ship-by, tracking number, show name) and the buyer ID and nickname at the bottom. TikTok labels arrive on A6 pages; the label is cut out and scaled evenly to fill the 4×6, never stretched.
 
 **If it says `DO NOT PRINT`, don't print it.** Nothing was saved. Open the
 **Logs** tab, click **Save report…**, and send that file over.
@@ -92,6 +99,7 @@ every subtotal produces 123.
                   # still runs ~3,300 of the checks
 ./run.sh --no-prices  # print slips without prices
 ./run.sh --pick-list  # put a pick list at the front of the PDF
+./run.sh --no-condense  # one row per item; repeats are not grouped
 ```
 
 ### Upkeep
@@ -189,6 +197,20 @@ Non-obvious things that were fixed the hard way. Read before changing the render
   (pick list, slip, label). `Packing Slip` is defused to `Packing-Slip` on
   pick pages (`_defuse`) because `load()` finds slip pages by that phrase and
   would otherwise treat a pick page as a shipment.
+
+- **TikTok: the lot comes from columns read two ways.** `parse_order()` uses
+  the table header only to find where the name ends (pdftotext moves a column a
+  few characters either way, line by line, so a lot read by header position
+  landed in both SKU columns). The auditor's `raw_rows()` splits each row from
+  the right instead (qty, price, Seller SKU, SKU). The two must agree on every
+  lot, price and qty.
+- **TikTok labels are cut out, not stretched.** The page is A6 (298×420 pt)
+  and the label artwork inside it is 2:3. `tiktok.label_bitmap()` renders the
+  page, as for Whatnot, then crops to the ink, pads to exactly 2:3 and scales
+  evenly to 1200×1800. Stretching the whole page would squash the barcode by 6%.
+- **TikTok output is slip, then label**, like Whatnot, although the export
+  puts the label first. `verify()` pairs each run of slip pages with its
+  source order by order ID, then compares the label after it pixel for pixel.
 
 ### Known limitations
 

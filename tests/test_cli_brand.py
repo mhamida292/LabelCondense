@@ -1,5 +1,6 @@
 import sys
 import branding
+import platforms
 import whatnot_slips as ws
 
 def run_cli(monkeypatch, *argv):
@@ -13,6 +14,7 @@ def run_cli(monkeypatch, *argv):
         seen["verify"] = kw; return A()
     monkeypatch.setattr(ws, "build", fake_build)
     monkeypatch.setattr(ws, "verify", fake_verify)
+    monkeypatch.setattr(platforms, "detect", lambda src: "whatnot")
     monkeypatch.setattr(sys, "argv", ["whatnot_slips.py", *argv])
     assert ws.main() == 0
     return seen

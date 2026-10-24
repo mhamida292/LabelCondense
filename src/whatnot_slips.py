@@ -2,11 +2,14 @@
 """
 Rebuild a Whatnot "Combined Labels + Packing Slips" PDF so that repeated
 products collapse onto one line, keeping every #N variant and its price, and
-re-interleave the result with the original 4x6 shipping-label images.
+re-interleave the result with the original 4x6 shipping-label images. A TikTok
+Shop label + packing slip export is detected and handled the same way (see
+tiktok.py).
 
     ./whatnot_slips.py build IN.pdf -o OUT.pdf     # build, then self-verify
     ./whatnot_slips.py verify IN.pdf OUT.pdf       # audit an existing pair
     ./whatnot_slips.py verify IN.pdf OUT.pdf --deep   # + per-label pixel check
+    ./whatnot_slips.py build IN.pdf -o OUT.pdf --no-condense   # one row per line
 
 Requires: poppler-utils (pdftotext/pdfimages/pdftoppm), ghostscript, Pillow.
 """
@@ -196,6 +199,11 @@ def header_lines(pagetext, side):
     col = region[0].index('From:')
     return [(ln[:col] if side == 'to' else ln[col:]).strip() for ln in region]
 
+def is_slip(text):
+    """A Whatnot slip page: 'Packing Slip', the To:/From: header, the QTY table."""
+    return ('Packing Slip' in text and bool(header_region(text))
+            and re.search(r'^\s*QTY', text, re.M) is not None)
+
 def load(pdf):
     """-> [(slip_page_numbers, ship, items)] in document order."""
     pages = pdf_pages(pdf)
@@ -218,6 +226,11 @@ def group_items(items):
         e['qty'] += it['qty']; e['subtotal'] += it['price']
         e['variants'].append(dict(variant=variant, price=it['price'], order=it['order']))
     return list(g.values())
+
+def grouping(items, condense=True):
+    """The slip's rows: repeats collapsed (the default), or with condense off
+    one row per source line, in source order."""
+    return group_items(items) if condense else [group_items([it])[0] for it in items]
 
 # ------------------------------------------------------------------ rendering
 def _num_ops(num, x):
@@ -577,7 +590,7 @@ def pick_ps(rows, src_name, nships):
 PS_HEAD = f"%!PS-Adobe-3.0\n<< /PageSize [{W} {H}] >> setpagedevice\n"
 
 def build(src, out, quiet=False, progress=None, brand=None, footer=None,
-          prices=True, pick_list=False):
+          prices=True, pick_list=False, condense=True):
     raw, data = load(src)
     ps = [PS_HEAD + (logo_prolog(brand.logo) if brand and brand.logo is not None else "")]
     nsl = nlb = 0
@@ -587,7 +600,7 @@ def build(src, out, quiet=False, progress=None, brand=None, footer=None,
     with tempfile.TemporaryDirectory() as td:
         for i, (pages, ship, items) in enumerate(data):
             to, frm = address(raw[pages[0] - 1])
-            sp = slip_ps(ship, group_items(items), to, frm, brand, footer, prices)
+            sp = slip_ps(ship, grouping(items, condense), to, frm, brand, footer, prices)
             ps += sp; nsl += len(sp)
             im = label_bitmap(src, pages[-1] + 1, td)
             if im is not None: ps.append(label_ps(im)); nlb += 1
@@ -597,6 +610,11 @@ def build(src, out, quiet=False, progress=None, brand=None, footer=None,
                 print(f"\r  rendering {i+1}/{len(data)}", end='', file=sys.stderr, flush=True)
     if not progress and not quiet and sys.stderr.isatty():
         print(file=sys.stderr)
+    write_pdf(ps, out)
+    return len(data), nsl, nlb
+
+def write_pdf(ps, out):
+    """The PostScript page strings, through gs, to a 4x6 PDF."""
     with tempfile.NamedTemporaryFile('w', suffix='.ps', delete=False) as f:
         f.write("".join(ps)); psfile = f.name
     try:
@@ -608,7 +626,6 @@ def build(src, out, quiet=False, progress=None, brand=None, footer=None,
             f'-sOutputFile={out}', psfile])
     finally:
         os.unlink(psfile)
-    return len(data), nsl, nlb
 
 def preview_png(brand, png, footer=None, prices=True):
     """One sample slip through the real renderer, at a thermal head's 203 dpi
@@ -893,7 +910,7 @@ def audit_pick(a, raw_src_pages, src_ships, pick_texts, src_name=''):
          f'{nums} on {m} pages')
 
 def verify(src, out, deep=False, progress=None, brand=None, footer=None,
-           prices=True, pick_list=False):
+           prices=True, pick_list=False, condense=True):
     a = Audit()
     flines = footer_lines(footer or "")
     stripped = {}       # slip page number -> (footer-free body, footer found)
@@ -935,7 +952,7 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
 
     # ---- per shipment
     for k, (spages, sship, sitems) in enumerate(src_ships):
-        gr = group_items(sitems)
+        gr = grouping(sitems, condense)
         tag = f'shipment {k} ({sship.get("to")})'
         # the shipment's own slip pages, however many it took
         opages = out_ships[k][0] if k < len(out_ships) else []
@@ -1004,7 +1021,7 @@ def verify(src, out, deep=False, progress=None, brand=None, footer=None,
         # before the search
         names = {}
         for k, (_, _, sitems) in enumerate(src_ships):
-            segs = [renderable(sg) for e in group_items(sitems)
+            segs = [renderable(sg) for e in grouping(sitems, condense)
                     for sg in wrap(display_name(e), NAME_W, 8.5, True)]
             for n in (out_ships[k][0] if k < len(out_ships) else []):
                 names[n] = segs
@@ -1088,6 +1105,8 @@ def main():
                    help='print slips without prices')
     b.add_argument('--pick-list', action='store_true',
                    help='put a pick list at the front of the PDF')
+    b.add_argument('--no-condense', action='store_true',
+                   help='one slip row per source line; repeats are not grouped')
     v = sub.add_parser('verify', help='audit an existing source/output pair')
     v.add_argument('src'); v.add_argument('out')
     v.add_argument('--deep', action='store_true')
@@ -1099,6 +1118,8 @@ def main():
                    help='expect an output built with --no-prices',)
     v.add_argument('--pick-list', action='store_true',
                    help='expect an output built with --pick-list')
+    v.add_argument('--no-condense', action='store_true',
+                   help='expect an output built with --no-condense')
     args = ap.parse_args()
 
     try:
@@ -1108,8 +1129,12 @@ def main():
         return 1
 
 def _run(args):
+    import platforms               # lazily: platforms imports this module
     brand = footer = None
-    prices, pick_list = not args.no_prices, args.pick_list
+    prices, pick_list, condense = not args.no_prices, args.pick_list, not args.no_condense
+    kind = platforms.detect(args.src)
+    mod = platforms.module(kind)
+    print(f"detected: {platforms.NAMES[kind]}")
     if not args.no_brand:
         import branding            # lazily: branding imports this module
         brand = branding.active()
@@ -1117,14 +1142,14 @@ def _run(args):
         for note in branding.load().notes:   # also a footer dropped with the header off
             print(f"branding: {note}")
     if args.cmd == 'build':
-        n, nsl, nlb = build(args.src, args.out, brand=brand, footer=footer,
-                           prices=prices, pick_list=pick_list)
+        n, nsl, nlb = mod.build(args.src, args.out, brand=brand, footer=footer,
+                                prices=prices, pick_list=pick_list, condense=condense)
         size = os.path.getsize(args.out)
         print(f"built {args.out}: {n} shipments, {nsl} slip pages, {nlb} labels, "
               f"{size/1e6:.2f} MB")
         if args.no_verify: return 0
-    a = verify(args.src, args.out, deep=args.deep, brand=brand,
-               footer=footer, prices=prices, pick_list=pick_list)
+    a = mod.verify(args.src, args.out, deep=args.deep, brand=brand, footer=footer,
+                   prices=prices, pick_list=pick_list, condense=condense)
     return 0 if a.report('AUDIT') else 1
 
 if __name__ == '__main__':

@@ -349,21 +349,27 @@ class App:
     def _build_idle(self, f):
         card = ttk.Frame(f, style="Card.TFrame", padding=30)
         card.pack(fill="both", expand=True)
-        ttk.Label(card, text="Choose a Whatnot export",
+        ttk.Label(card, text="Choose a Whatnot or TikTok export",
                   font=("TkDefaultFont", 14, "bold")).pack(pady=(14, 6))
-        ttk.Label(card, text="Combined Labels + Packing Slips, straight from Whatnot.",
+        ttk.Label(card, text="Whatnot Combined Labels + Packing Slips, or TikTok Shop "
+                             "labels + packing slips.",
                   foreground=self.colors["muted"]).pack()
         ttk.Button(card, text="Choose file…", width=16, style="Accent.TButton",
                    command=self.pick_file).pack(pady=(18, 4), ipady=3)
         self.show_prices = tk.BooleanVar(value=recent.get_pref("show_prices", True))
         self.pick_list = tk.BooleanVar(value=recent.get_pref("pick_list", False))
+        self.condense = tk.BooleanVar(value=recent.get_pref("condense", True))
         self.show_prices.trace_add(
             "write", lambda *_: recent.set_pref("show_prices", self.show_prices.get()))
         self.pick_list.trace_add(
             "write", lambda *_: recent.set_pref("pick_list", self.pick_list.get()))
+        self.condense.trace_add(
+            "write", lambda *_: recent.set_pref("condense", self.condense.get()))
         opts = ttk.Frame(card); opts.pack(pady=(6, 0))
         ttk.Checkbutton(opts, text="Show prices", variable=self.show_prices).pack(anchor="w")
         ttk.Checkbutton(opts, text="Add pick list", variable=self.pick_list).pack(anchor="w")
+        ttk.Checkbutton(opts, text="Condense repeated items",
+                        variable=self.condense).pack(anchor="w")
         # one click for the export that just landed in Downloads
         row = ttk.Frame(card); row.pack()
         self.recent_btn = ttk.Button(row, command=self.use_recent)
@@ -396,7 +402,8 @@ class App:
 
     def pick_file(self, path=None):
         if path is None:
-            path = dialogs.ask_open(self.root, "Choose a Whatnot export", recent.export_dir(),
+            path = dialogs.ask_open(self.root, "Choose a Whatnot or TikTok export",
+                                    recent.export_dir(),
                                     [("PDF files", "*.pdf *.PDF"), ("All files", "*")])
         if not path:
             return
@@ -478,7 +485,7 @@ class App:
         job = jobmod.Job(self.src, dest, brand=branding.active(),
                            footer=branding.active_footer(),
                            prices=self.show_prices.get(), pick_list=self.pick_list.get(),
-                           notes=branding.load().notes)
+                           condense=self.condense.get(), notes=branding.load().notes)
         threading.Thread(target=job.run, args=(self.queue.put,), daemon=True).start()
         self._after_id = self.root.after(100, self.pump)
 
@@ -531,7 +538,8 @@ class App:
         self.result = result
         self.tab("run")
         if result.ok:
-            self.stats_text.set(f"{result.pages} pages\n{result.checks:,} checks passed")
+            lead = f"{result.platform} · " if result.platform else ""
+            self.stats_text.set(f"{lead}{result.pages} pages\n{result.checks:,} checks passed")
             self.show("done")
         else:
             self.fail_text.set(result.message)

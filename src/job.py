@@ -4,6 +4,7 @@ import pathlib, traceback
 from dataclasses import dataclass
 
 import logstore
+import platforms
 import whatnot_slips as ws
 
 def _friendly(exc):
@@ -13,8 +14,7 @@ def _friendly(exc):
         return (f"{name} could not be started. This build looks incomplete — "
                 f"please download it again.")
     if isinstance(exc, (IndexError, KeyError, ValueError, AttributeError)):
-        return ("This PDF isn't a Whatnot Combined Labels + Packing Slips "
-                "export, or its layout has changed.")
+        return platforms.UNKNOWN
     if isinstance(exc, PermissionError):
         return "That location can't be written to. Try somewhere else."
     return f"{type(exc).__name__}: {exc}"
@@ -28,10 +28,11 @@ class Result:
     report_path: pathlib.Path | None
     dest: pathlib.Path | None
     message: str
+    platform: str = ""
 
 class Job:
     def __init__(self, src, dest, deep=True, brand=None, footer=None,
-                 prices=True, pick_list=False, notes=None):
+                 prices=True, pick_list=False, notes=None, condense=True):
         self.src = pathlib.Path(src)
         self.dest = pathlib.Path(dest)
         self.deep = deep
@@ -39,6 +40,7 @@ class Job:
         self.footer = footer
         self.prices = prices
         self.pick_list = pick_list
+        self.condense = condense
         # branding.load() notes; None -> whatever the brand carries
         self.notes = notes
 
@@ -56,16 +58,18 @@ class Job:
                      else self.brand.notes if self.brand else []):
             log(f"branding: {note}")
 
+        platform = ""
         try:
-            n, nsl, nlb = ws.build(str(self.src), str(self.dest), quiet=True,
-                                   progress=progress, brand=self.brand,
-                                   footer=self.footer, prices=self.prices,
-                                   pick_list=self.pick_list)
+            kind = platforms.detect(str(self.src))
+            platform, mod = platforms.NAMES[kind], platforms.module(kind)
+            log(f"detected: {platform}")
+            opts = dict(brand=self.brand, footer=self.footer, prices=self.prices,
+                        pick_list=self.pick_list, condense=self.condense)
+            n, nsl, nlb = mod.build(str(self.src), str(self.dest), quiet=True,
+                                    progress=progress, **opts)
             log(f"built {self.dest.name}: {n} shipments, {nsl} slip pages, {nlb} labels")
-            audit = ws.verify(str(self.src), str(self.dest), deep=self.deep,
-                              progress=progress, brand=self.brand,
-                              footer=self.footer, prices=self.prices,
-                              pick_list=self.pick_list)
+            audit = mod.verify(str(self.src), str(self.dest), deep=self.deep,
+                               progress=progress, **opts)
             report = audit.text("AUDIT")
             for line in report.splitlines():
                 log(line)
@@ -89,7 +93,7 @@ class Job:
                 message = discard_warning or report_note or f"{len(audit.fail)} checks failed"
 
             res = Result(ok, pages, audit.checks, len(audit.fail), report_path,
-                         self.dest if ok else None, message)
+                         self.dest if ok else None, message, platform)
         except Exception as exc:
             discard_ok = self._discard()
             lines.append("")
@@ -108,7 +112,7 @@ class Job:
             else:
                 message = _friendly(exc)
 
-            res = Result(False, 0, 0, 0, report_path, None, message)
+            res = Result(False, 0, 0, 0, report_path, None, message, platform)
         emit({"kind": "done", "result": res})
         return res
 

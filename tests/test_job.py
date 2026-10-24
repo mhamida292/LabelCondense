@@ -13,6 +13,11 @@ class FakeAudit:
 def logs_in_tmp(tmp_path, monkeypatch):
     monkeypatch.setenv("PACKING_LOG_DIR", str(tmp_path / "logs"))
 
+@pytest.fixture(autouse=True)
+def detected_as_whatnot(monkeypatch):
+    """The fake inputs here aren't PDFs; the stubs stand in for Whatnot's."""
+    monkeypatch.setattr(J.platforms, "detect", lambda src: "whatnot")
+
 def test_success_writes_output_and_report(tmp_path, monkeypatch):
     src = tmp_path / "in.pdf"; src.write_text("x")
     dest = tmp_path / "out.pdf"
@@ -79,7 +84,7 @@ def test_unreadable_input_says_what_was_expected(tmp_path, monkeypatch):
     monkeypatch.setattr(J.ws, "build", bad)
     res = J.Job(src, tmp_path / "o.pdf").run(lambda e: None)
     assert res.ok is False
-    assert "Combined Labels + Packing Slips" in res.message
+    assert "Whatnot or TikTok Shop export" in res.message
     assert "IndexError" not in res.message
 
 def test_discard_failure_is_reported_not_swallowed(tmp_path, monkeypatch):
@@ -158,8 +163,10 @@ def test_job_passes_footer_prices_and_pick_list(tmp_path, monkeypatch):
     monkeypatch.setattr(J.ws, "build", fake_build)
     monkeypatch.setattr(J.ws, "verify", fake_verify)
     monkeypatch.setattr(J.ws, "pdf_pages", lambda p: ["a"])
-    J.Job(src, tmp_path / "out.pdf", footer="Hi", prices=False, pick_list=True).run(lambda e: None)
-    want = {"brand": None, "footer": "Hi", "prices": False, "pick_list": True}
+    J.Job(src, tmp_path / "out.pdf", footer="Hi", prices=False, pick_list=True,
+          condense=False).run(lambda e: None)
+    want = {"brand": None, "footer": "Hi", "prices": False, "pick_list": True,
+            "condense": False}
     assert seen["build"] == want and seen["verify"] == want
 
 

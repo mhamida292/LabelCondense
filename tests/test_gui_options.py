@@ -71,10 +71,12 @@ def test_footer_locks_during_run(app):
 
 def test_run_switches_default_and_persist(app):
     assert app.show_prices.get() is True and app.pick_list.get() is False
-    app.show_prices.set(False); app.pick_list.set(True)
+    assert app.condense.get() is True
+    app.show_prices.set(False); app.pick_list.set(True); app.condense.set(False)
     root, b = _make()
     try:
         assert b.show_prices.get() is False and b.pick_list.get() is True
+        assert b.condense.get() is False
     finally:
         root.destroy()
 
@@ -89,9 +91,10 @@ def test_start_passes_switches_to_job(app, monkeypatch, tmp_path):
     monkeypatch.setattr(app, "ask_destination", lambda: tmp_path / "o.pdf")
     branding.save(branding.Brand(footer_enabled=True, footer="Bye"))
     app.src = tmp_path / "in.pdf"
-    app.show_prices.set(False); app.pick_list.set(True)
+    app.show_prices.set(False); app.pick_list.set(True); app.condense.set(False)
     app.start()
     assert seen["prices"] is False and seen["pick_list"] is True
+    assert seen["condense"] is False
     assert seen["footer"] == "Bye"
     app.root.after_cancel(app._after_id)
 
