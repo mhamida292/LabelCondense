@@ -28,7 +28,11 @@ def _two_profiles():
 def test_both_lists_show_every_profile():
     import packing_gui
     _two_profiles()
-    root = tk.Tk(); root.withdraw()
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    root.withdraw()
     try:
         a = packing_gui.App(root)
         for box in (a.run_profile, a.profile_pick):
